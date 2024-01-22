@@ -205,6 +205,8 @@ def generate_network_mcmc_forecast_plots(
     save_dir,
     save_fp_prefix=None,
     save_fp_postfix=None,
+    vlines=[],
+    vline_labels=[],
 ):
     os.makedirs(save_dir, exist_ok=True)
     # plot inputs
@@ -226,6 +228,8 @@ def generate_network_mcmc_forecast_plots(
         start_date, 
         current_date, 
         end_date, 
+        vlines,
+        vline_labels,
         os.path.join(save_dir, fp)
     )
 
@@ -236,6 +240,8 @@ def generate_network_mcmc_forecast_plots(
         start_date, 
         current_date, 
         end_date, 
+        vlines,
+        vline_labels,
         os.path.join(save_dir, fp)
     )
 
@@ -246,6 +252,8 @@ def generate_network_mcmc_forecast_plots(
         start_date,
         current_date,
         end_date,
+        vlines,
+        vline_labels,
         os.path.join(save_dir, fp)
     )
 
@@ -354,10 +362,23 @@ def get_newpledge_oldpledge_delta_distribution(mcmc_simulation_results_vec, curr
     pass
 
 # TODO: expand the logic
-def get_upgrade_date(filprice2lvd, fil_price=3, q=0.05):
+def get_upgrade_date_mcmc(filprice2lvd, fil_price=3, q=0.05):
     # default values are conservative
     upgrade_date = np.quantile(filprice2lvd[fil_price], q)
     return upgrade_date
+
+def get_upgrade_date_scenario(sim2configresults, start_date, end_date, fil_price=3, target_value_locked_usd=100e6):
+    # choose the soonest upgrade date from all scenarios computed
+    # this is a conservative approach
+    min_date = None
+    macro_t = du.get_t(start_date, end_date=end_date)
+    for sim_config, simulation_results in sim2configresults.items():
+        locked_usd = simulation_results['network_locked'] * fil_price
+        ix = np.where(locked_usd < target_value_locked_usd)[0]
+        if len(ix) > 0:
+            if min_date is None or macro_t[ix[0]] < min_date:
+                min_date = macro_t[ix[0]]
+    return min_date
 
 def create_gamma_vector(upgrade_date, forecast_length, current_date, ramp_len_days=90):
     gamma_smooth = np.ones(forecast_length)
@@ -447,7 +468,6 @@ def main(
         mcmc_results_vec.append(simulation_results)
 
     # plots
-    # TODO: plot vlines
     generate_network_mcmc_forecast_plots(
         mcmc_trajectories, 
         [mcmc_results_vec], 
@@ -492,7 +512,18 @@ def main(
             simulation_offline_data
         )
         simconfig2results[sim_config] = simulation_results
-
+    generate_scenario_forecast_plots(
+        simconfig2results,
+        rbp_factors,
+        rr_factors,
+        fpr_factors,
+        start_date, 
+        current_date, 
+        end_date, 
+        output_dir,
+        save_fp_prefix=None,
+        save_fp_postfix=None,
+    )
     ################
     # check when the upgrade date should be, based on Locked criteria
     #  Should be when 5th percentile Locked is expected to reach 100M USD - 6 months
@@ -506,10 +537,22 @@ def main(
         filprice2lvd[fil_price] = lvd
     pu.plot_locked_value_distribution(filprice2lvd, target_value_locked_usd, os.path.join(output_dir, 'lvd.png'))
 
+    ###########################################################################################
     # check when the upgrade date should be, based on the pledge criteria
     #  Should be the earliest date where NewPledge > 2*CurrentPledge
     # TODO: include scenarios here
-    upgrade_date = get_upgrade_date(filprice2lvd, fil_price=3, q=0.05)
+    upgrade_fil_price = 3
+    upgrade_date_mcmc = get_upgrade_date_mcmc(filprice2lvd, fil_price=upgrade_fil_price, q=0.05)
+    conservative_upgrade_date_scenarios = get_upgrade_date_scenario(
+        simconfig2results, 
+        start_date, 
+        end_date, 
+        fil_price=upgrade_fil_price, 
+        target_value_locked_usd=target_value_locked_usd
+    )
+    upgrade_date = min(upgrade_date_mcmc, conservative_upgrade_date_scenarios)
+    print('Upgrade Date: %s' % upgrade_date)
+    ###########################################################################################
 
     # for the chosen date, show the forecast of the network after the upgrade w/ the new pledge
     # and the old pledge
@@ -534,6 +577,8 @@ def main(
             gamma_weight_type=0  # means arithmetic weighting
         )
         mcmc_results_gamma_vec.append(simulation_results)
+    vlines = [upgrade_date]
+    vline_labels = ['Upgrade Date']
     generate_network_mcmc_forecast_plots(
         mcmc_trajectories, 
         [mcmc_results_gamma_vec], 
@@ -541,6 +586,8 @@ def main(
         current_date, 
         end_date, 
         output_dir,
+        vlines=vlines,
+        vline_labels=vline_labels,
         save_fp_prefix='gamma',
     )
 
@@ -552,6 +599,8 @@ def main(
         current_date, 
         end_date, 
         output_dir,
+        vlines=vlines,
+        vline_labels=vline_labels,
         save_fp_prefix='overlay',
     )
 
