@@ -129,10 +129,10 @@ def run_mcmc(
     }
 
 @memory.cache
-def get_onboarding_historical_data(current_date):
-    hist_plot_tvec_rr, hist_rr = u.get_historical_renewal_rate(current_date-timedelta(days=360), current_date)
-    hist_plot_tvec_rbp, hist_rbp = u.get_historical_daily_onboarded_power(current_date-timedelta(days=360), current_date)
-    hist_plot_tvec_fpr, hist_fpr = u.get_historical_filplus_rate(current_date-timedelta(days=360), current_date)
+def get_onboarding_historical_data(current_date, history_days=360):
+    hist_plot_tvec_rr, hist_rr = u.get_historical_renewal_rate(current_date-timedelta(days=history_days), current_date)
+    hist_plot_tvec_rbp, hist_rbp = u.get_historical_daily_onboarded_power(current_date-timedelta(days=history_days), current_date)
+    hist_plot_tvec_fpr, hist_fpr = u.get_historical_filplus_rate(current_date-timedelta(days=history_days), current_date)
     return {
         'hist_plot_tvec_rr': hist_plot_tvec_rr,
         'hist_rr': hist_rr,
@@ -208,7 +208,7 @@ def generate_network_mcmc_forecast_plots(
 ):
     os.makedirs(save_dir, exist_ok=True)
     # plot inputs
-    hist_inputs = get_onboarding_historical_data(current_date)
+    hist_inputs = get_onboarding_historical_data(current_date, history_days=360)
     hist_inputs = SimpleNamespace(**hist_inputs)
     fp = fix_fp('inputs.png', prefix=save_fp_prefix, postfix=save_fp_postfix)
     pu.plot_inputs(mcmc_trajectories, hist_inputs, current_date, os.path.join(save_dir, fp))
@@ -230,7 +230,7 @@ def generate_network_mcmc_forecast_plots(
     )
 
     fp = fix_fp('supply.png', prefix=save_fp_prefix, postfix=save_fp_postfix)
-    pu.plot_supply_panel(
+    pu.plot_mcmc_supply_panel(
         hist_kpi_df, 
         mcmc_simulation_results_vec, 
         start_date, 
@@ -240,7 +240,7 @@ def generate_network_mcmc_forecast_plots(
     )
 
     fp = fix_fp('onboarding.png', prefix=save_fp_prefix, postfix=save_fp_postfix)
-    pu.plot_onboarding_panel(
+    pu.plot_mcmc_onboarding_panel(
         hist_kpi_df,
         mcmc_simulation_results_vec,
         start_date,
@@ -261,7 +261,7 @@ def generate_network_mcmc_forecast_plots_delta(
     os.makedirs(save_dir, exist_ok=True)
 
     fp = fix_fp('supply.png', prefix=save_fp_prefix, postfix=save_fp_postfix)
-    pu.plot_supply_panel_delta(
+    pu.plot_mcmc_supply_panel_delta(
         mcmc_simulation_results_vec, 
         start_date, 
         current_date, 
@@ -270,11 +270,68 @@ def generate_network_mcmc_forecast_plots_delta(
     )
 
     fp = fix_fp('onboarding.png', prefix=save_fp_prefix, postfix=save_fp_postfix)
-    pu.plot_onboarding_panel_delta(
+    pu.plot_mcmc_onboarding_panel_delta(
         mcmc_simulation_results_vec,
         start_date,
         current_date,
         end_date,
+        os.path.join(save_dir, fp)
+    )
+
+def generate_scenario_forecast_plots(
+    simconfig2results,
+    rbp_factors,
+    rr_factors,
+    fpr_factors,
+    start_date, 
+    current_date, 
+    end_date, 
+    save_dir,
+    save_fp_prefix=None,
+    save_fp_postfix=None,
+):
+    hist_kpi_df = get_historical_kpis(
+        current_date-timedelta(days=180), 
+        current_date, 
+        current_date+timedelta(days=365*2)
+    )
+
+    fp = fix_fp('power_scenarios.png', prefix=save_fp_prefix, postfix=save_fp_postfix)
+    pu.plot_power_scenarios(
+        hist_kpi_df,
+        simconfig2results,
+        start_date,
+        current_date,
+        end_date,
+        rbp_factors,
+        rr_factors,
+        fpr_factors,
+        os.path.join(save_dir, fp)
+    )
+
+    fp = fix_fp('supply_scenarios.png', prefix=save_fp_prefix, postfix=save_fp_postfix)
+    pu.plot_supply_scenarios(
+        hist_kpi_df,
+        simconfig2results,
+        start_date,
+        current_date,
+        end_date,
+        rbp_factors,
+        rr_factors,
+        fpr_factors,
+        os.path.join(save_dir, fp)
+    )
+
+    fp = fix_fp('onboarding_scenarios.png', prefix=save_fp_prefix, postfix=save_fp_postfix)
+    pu.plot_onboarding_scenarios(
+        hist_kpi_df,
+        simconfig2results,
+        start_date,
+        current_date,
+        end_date,
+        rbp_factors,
+        rr_factors,
+        fpr_factors,
         os.path.join(save_dir, fp)
     )
 
@@ -325,6 +382,8 @@ def main(
     rhat_threshold_pct=95,
 ):
     os.makedirs(output_dir, exist_ok=True)
+    lock_target = 0.3
+    sector_duration = 365
 
     if forecast_start_date is None:
         forecast_start_date = date.today() - timedelta(days=3)  # starboard data aggregation delay
@@ -354,25 +413,18 @@ def main(
     rb_rhat_check = mcmc.check_rhat(mcmc_trajectories.diagnostics['rb_rhats'])*100
     ext_rhat_check = mcmc.check_rhat(mcmc_trajectories.diagnostics['ext_rhats'])*100
     exp_rhat_check = mcmc.check_rhat(mcmc_trajectories.diagnostics['expire_rhats'])*100
-    # dealonboard_rhat_check = mcmc.check_rhat(mcmc_trajectories.diagnostics['deal_onboard_pred_rhats'])*100
-    # cconboard_rhat_check = mcmc.check_rhat(mcmc_trajectories.diagnostics['cc_onboard_pred_rhats'])*100
     fpr_rhat_check = mcmc.check_rhat(mcmc_trajectories.diagnostics['fpr_rhat'])*100
 
     print('RBP Forecast RHat < 1.05: %0.02f %%' % rb_rhat_check)
     print('Extensions Forecast RHat < 1.05: %0.02f %%' % ext_rhat_check)
     print('Expirations Forecast RHat < 1.05: %0.02f %%' % exp_rhat_check)
     print('FIL+ Forecast RHat < 1.05: %0.02f %%' % fpr_rhat_check)
-    # print('Deal Onboard Forecast RHat < 1.05: %0.02f %%' % dealonboard_rhat_check)
-    # print('CC Onboard Forecast RHat < 1.05: %0.02f %%' % cconboard_rhat_check)
-    # rhats = [rb_rhat_check, ext_rhat_check, exp_rhat_check, dealonboard_rhat_check, cconboard_rhat_check]
     rhats = [rb_rhat_check, ext_rhat_check, exp_rhat_check, fpr_rhat_check]
     if np.any(np.asarray(rhats) < rhat_threshold_pct):
         raise ValueError('RHat check failed, please reconfigure MCMC with more samples or chains')
     ############################################################################
 
     # run simulation for forecasted input trajectories
-    lock_target = 0.3
-    sector_duration = 365
     simulation_offline_data = download_simulation_data(auth_token, start_date, current_date, end_date)
 
     mcmc_results_vec = []
@@ -405,6 +457,43 @@ def main(
         output_dir,
     )
 
+    ################
+    # create scenarios for rbp/rr/fpr trajectories to see how they compare w/ MCMC for determining
+    # when the upgrade date should be
+    hist_inputs = get_onboarding_historical_data(current_date, history_days=30)  # use last 30 days as the anchor, and consider scenarios +/- 20% from that level
+    hist_inputs = SimpleNamespace(**hist_inputs)
+    hist_median_rbp = np.median(hist_inputs.hist_rbp)
+    hist_median_rr = np.median(hist_inputs.hist_rr)
+    hist_median_fpr = np.median(hist_inputs.hist_fpr)
+
+    rbp_factors = [0.8, 1.2]
+    rr_factors = [0.8, 1.2]
+    fpr_factors = [0.8, 1.2]
+
+    sim_configs = list(itertools.product(rbp_factors, rr_factors, fpr_factors))
+    sim_configs.insert(0, (1,1,1))
+    simconfig2results = {}
+    for sim_config in sim_configs:
+        rbp_factor, rr_factor, fpr_factor = sim_config
+        rbp_vec = jnp.ones(forecast_length) * hist_median_rbp * rbp_factor
+        rr_vec = jnp.ones(forecast_length) * min(0.99, hist_median_rr * rr_factor)
+        fpr_vec = jnp.ones(forecast_length) * min(0.99, hist_median_fpr * fpr_factor)
+
+        simulation_results = sim.run_sim(
+            rbp_vec,
+            rr_vec,
+            fpr_vec,
+            lock_target,
+        
+            start_date,
+            current_date,
+            forecast_length,
+            sector_duration,
+            simulation_offline_data
+        )
+        simconfig2results[sim_config] = simulation_results
+
+    ################
     # check when the upgrade date should be, based on Locked criteria
     #  Should be when 5th percentile Locked is expected to reach 100M USD - 6 months
     target_value_locked_usd = 100e6
@@ -419,7 +508,7 @@ def main(
 
     # check when the upgrade date should be, based on the pledge criteria
     #  Should be the earliest date where NewPledge > 2*CurrentPledge
-
+    # TODO: include scenarios here
     upgrade_date = get_upgrade_date(filprice2lvd, fil_price=3, q=0.05)
 
     # for the chosen date, show the forecast of the network after the upgrade w/ the new pledge
@@ -466,33 +555,33 @@ def main(
         save_fp_prefix='overlay',
     )
 
-    # show the delta
-    keys = [
-        'rb_total_power_eib', 'qa_total_power_eib', 'day_network_reward', 
-        'network_locked', 'circ_supply',
-        'day_pledge_per_QAP', 'day_rewards_per_sector'
-    ]
-    delta_vec = []
-    for ii in range(num_samples_mcmc*num_chains_mcmc):
-        delta = {}
-        has_nan = False
-        for k in keys:
-            y = 100*np.asarray((mcmc_results_gamma_vec[ii][k] - mcmc_results_vec[ii][k])/mcmc_results_vec[ii][k])
-            if np.isnan(y).any():
-                has_nan = True
-                break
-            delta[k] = y
-        if not has_nan:
-            delta_vec.append(delta)
-    print(len(delta_vec))
-    generate_network_mcmc_forecast_plots_delta(
-        delta_vec, 
-        start_date, 
-        current_date, 
-        end_date, 
-        output_dir,
-        save_fp_prefix='delta',
-    )
+    # # show the delta
+    # keys = [
+    #     'rb_total_power_eib', 'qa_total_power_eib', 'day_network_reward', 
+    #     'network_locked', 'circ_supply',
+    #     'day_pledge_per_QAP', 'day_rewards_per_sector'
+    # ]
+    # delta_vec = []
+    # for ii in range(num_samples_mcmc*num_chains_mcmc):
+    #     delta = {}
+    #     has_nan = False
+    #     for k in keys:
+    #         y = 100*np.asarray((mcmc_results_gamma_vec[ii][k] - mcmc_results_vec[ii][k])/mcmc_results_vec[ii][k])
+    #         if np.isnan(y).any():
+    #             has_nan = True
+    #             break
+    #         delta[k] = y
+    #     if not has_nan:
+    #         delta_vec.append(delta)
+    # print(len(delta_vec))
+    # generate_network_mcmc_forecast_plots_delta(
+    #     delta_vec, 
+    #     start_date, 
+    #     current_date, 
+    #     end_date, 
+    #     output_dir,
+    #     save_fp_prefix='delta',
+    # )
 
 
 if __name__ == '__main__':

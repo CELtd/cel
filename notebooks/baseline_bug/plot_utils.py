@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import mechafil_jax.date_utils as du
+from matplotlib.lines import Line2D
 
 import os
 colors = [mpl.colormaps['Blues'], mpl.colormaps['Oranges']]
@@ -153,7 +154,7 @@ def plot_mcmc_power_panel(hist_kpi_df, simulation_results_vec, start_date, curre
 #     plt.tight_layout()
 #     plt.savefig(save_fp)
 
-def plot_supply_panel(hist_kpi_df, simulation_results_vec, start_date, current_date, end_date, save_fp):
+def plot_mcmc_supply_panel(hist_kpi_df, simulation_results_vec, start_date, current_date, end_date, save_fp):
     fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(10,4))
 
     macro_t = du.get_t(start_date, end_date=end_date)
@@ -210,7 +211,7 @@ def plot_supply_panel(hist_kpi_df, simulation_results_vec, start_date, current_d
     plt.tight_layout()
     plt.savefig(save_fp)
 
-def plot_supply_panel_delta(simulation_results_vec, start_date, current_date, end_date, save_fp):
+def plot_mcmc_supply_panel_delta(simulation_results_vec, start_date, current_date, end_date, save_fp):
     fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(10,4))
     blues = mpl.colormaps['Blues']
 
@@ -257,7 +258,7 @@ def plot_supply_panel_delta(simulation_results_vec, start_date, current_date, en
     plt.tight_layout()
     plt.savefig(save_fp)
 
-def plot_onboarding_panel(hist_kpi_df, simulation_results_vec, start_date, current_date, end_date, save_fp):
+def plot_mcmc_onboarding_panel(hist_kpi_df, simulation_results_vec, start_date, current_date, end_date, save_fp):
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10,4))
 
     macro_t = du.get_t(start_date, end_date=end_date)
@@ -304,7 +305,7 @@ def plot_onboarding_panel(hist_kpi_df, simulation_results_vec, start_date, curre
 
     plt.savefig(save_fp)
 
-def plot_onboarding_panel_delta(simulation_results_vec, start_date, current_date, end_date, save_fp):
+def plot_mcmc_onboarding_panel_delta(simulation_results_vec, start_date, current_date, end_date, save_fp):
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10,4))
     blues = mpl.colormaps['Blues']
 
@@ -375,3 +376,248 @@ def plot_locked_value_distribution(filprice2lvd, tvl_target, save_fp):
     plt.tight_layout()
     plt.savefig(save_fp)
 
+def plot_power_scenarios(hist_kpi_df, results_dict, start_date, current_date, end_date, rbp_factors, rr_factors, fpr_factors, save_fp):
+    fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(10,4))
+
+    macro_t = du.get_t(start_date, end_date=end_date)
+    colors = [mpl.colormaps['Blues'], mpl.colormaps['Oranges']]
+    intensities = np.linspace(0.3, 0.7, len(rr_factors))
+    linestyles = ['-.', ':']
+    
+    axx = ax[0]
+    for sim_config, sim_results in results_dict.items():
+        rbp_factor, rr_factor, fpr_factor = sim_config
+        if rbp_factor == 1 and rr_factor == 1 and fpr_factor == 1:
+            c = 'k'
+            l='-'
+        else:
+            c = colors[rbp_factors.index(rbp_factor)](intensities[rr_factors.index(rr_factor)])
+            l = linestyles[fpr_factors.index(fpr_factor)]
+            
+        axx.plot(macro_t, sim_results['rb_total_power_eib'], color=c, linestyle=l)
+    axx.plot(hist_kpi_df['date'], hist_kpi_df['rb_total_power_eib'], color='k')
+    axx.set_ylabel('EiB')
+    axx.set_title('RBP')
+    for tick in axx.get_xticklabels(): tick.set_rotation(60)
+    # setup the legend
+    custom_lines = [
+        Line2D([0], [0], color=colors[0](0.3), lw=2),
+        Line2D([0], [0], color='k', lw=2),
+        Line2D([0], [0], color=colors[1](0.7), lw=2)
+    ]
+    axx.legend(custom_lines, ['0.8x', '1x', '1.2x'], title='RBP Factor')
+    axx.set_ylim(bottom=0)
+    axx.axvline(current_date, color='grey', linestyle='--')
+
+    axx = ax[1]
+    for sim_config, sim_results in results_dict.items():
+        rbp_factor, rr_factor, fpr_factor = sim_config
+        if rbp_factor == 1 and rr_factor == 1 and fpr_factor == 1:
+            c = 'k'
+            l='-'
+        else:
+            c = colors[rbp_factors.index(rbp_factor)](intensities[rr_factors.index(rr_factor)])
+            l = linestyles[fpr_factors.index(fpr_factor)]
+            
+        axx.plot(macro_t, sim_results['qa_total_power_eib'], color=c, linestyle=l)
+    axx.plot(hist_kpi_df['date'], hist_kpi_df['qa_total_power_eib'], color='k')
+    axx.plot(macro_t, sim_results['network_baseline_EIB'], color='k', linestyle='--')
+    axx.set_ylabel('EiB')
+    axx.set_title('QAP')
+    for tick in axx.get_xticklabels(): tick.set_rotation(60)
+    # setup the legend
+    # setup the legend
+    custom_lines = [
+        Line2D([0], [0], color='k', lw=2, linestyle='-.'),
+        Line2D([0], [0], color='k', lw=2),
+        Line2D([0], [0], color='k', lw=2, linestyle=':'),
+    ]
+    axx.legend(custom_lines, ['0.8x', '1x', '1.2x'], title='FPR Factor')
+    axx.set_ylim(bottom=0)
+    axx.axvline(current_date, color='grey', linestyle='--')
+    
+    axx = ax[2]
+    for sim_config, sim_results in results_dict.items():
+        rbp_factor, rr_factor, fpr_factor = sim_config
+        if rbp_factor == 1 and rr_factor == 1 and fpr_factor == 1:
+            c = 'k'
+            l='-'
+        else:
+            c = colors[rbp_factors.index(rbp_factor)](intensities[rr_factors.index(rr_factor)])
+            l = linestyles[fpr_factors.index(fpr_factor)]
+            
+        axx.plot(macro_t, sim_results['day_network_reward'], color=c, linestyle=l)
+    axx.plot(hist_kpi_df['date'], hist_kpi_df['day_network_reward'], color='k')
+    axx.set_ylabel('FIL/day')
+    axx.set_title('Minting Rate')
+    for tick in axx.get_xticklabels(): tick.set_rotation(60)
+    custom_lines = [
+        Line2D([0], [0], color=mpl.colormaps['Greys'](intensities[0]), lw=2),
+        Line2D([0], [0], color='k', lw=2),
+        Line2D([0], [0], color=mpl.colormaps['Greys'](intensities[1]), lw=2),
+    ]
+    axx.legend(custom_lines, ['0.8x', '1x', '1.2x'], title='RR Factor')
+    axx.set_ylim(bottom=0)
+    axx.axvline(current_date, color='grey', linestyle='--')
+    
+    # plt.suptitle('Power Metrics')
+    plt.tight_layout()
+
+    plt.savefig(save_fp)
+
+def plot_supply_scenarios(hist_kpi_df, results_dict, start_date, current_date, end_date, rbp_factors, rr_factors, fpr_factors, save_fp):
+    fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(10,4))
+
+    macro_t = du.get_t(start_date, end_date=end_date)
+    colors = [mpl.colormaps['Blues'], mpl.colormaps['Oranges']]
+    intensities = np.linspace(0.3, 0.7, len(rr_factors))
+    linestyles = ['-.', ':']
+    
+    axx = ax[0]
+    for sim_config, sim_results in results_dict.items():
+        rbp_factor, rr_factor, fpr_factor = sim_config
+        if rbp_factor == 1 and rr_factor == 1 and fpr_factor == 1:
+            c = 'k'
+            l='-'
+        else:
+            c = colors[rbp_factors.index(rbp_factor)](intensities[rr_factors.index(rr_factor)])
+            l = linestyles[fpr_factors.index(fpr_factor)]
+            
+        axx.plot(macro_t, sim_results['network_locked']/1e6, color=c, linestyle=l)
+    axx.plot(hist_kpi_df['date'], hist_kpi_df['network_locked']/1e6, color='k')
+    axx.set_ylabel('M-FIL')
+    axx.set_title('Network Locked')
+    for tick in axx.get_xticklabels(): tick.set_rotation(60)
+    # setup the legend
+    custom_lines = [
+        Line2D([0], [0], color=colors[0](0.3), lw=2),
+        Line2D([0], [0], color='k', lw=2),
+        Line2D([0], [0], color=colors[1](0.7), lw=2)
+    ]
+    axx.legend(custom_lines, ['0.8x', '1x', '1.2x'], title='RBP Factor')
+    axx.set_ylim(bottom=0)
+    axx.axvline(current_date, color='grey', linestyle='--')
+    
+    axx = ax[1]
+    for sim_config, sim_results in results_dict.items():
+        rbp_factor, rr_factor, fpr_factor = sim_config
+        if rbp_factor == 1 and rr_factor == 1 and fpr_factor == 1:
+            c = 'k'
+            l='-'
+        else:
+            c = colors[rbp_factors.index(rbp_factor)](intensities[rr_factors.index(rr_factor)])
+            l = linestyles[fpr_factors.index(fpr_factor)]
+            
+        axx.plot(macro_t, sim_results['circ_supply']/1e6, color=c, linestyle=l)
+    axx.plot(hist_kpi_df['date'], hist_kpi_df['circ_supply']/1e6, color='k')
+    axx.set_ylabel('M-FIL')
+    axx.set_title('Circulating Supply')
+    for tick in axx.get_xticklabels(): tick.set_rotation(60)
+    # setup the legend
+    custom_lines = [
+        Line2D([0], [0], color='k', lw=2, linestyle='-.'),
+        Line2D([0], [0], color='k', lw=2),
+        Line2D([0], [0], color='k', lw=2, linestyle=':'),
+    ]
+    axx.legend(custom_lines, ['0.8x', '1x', '1.2x'], title='FPR Factor')
+    axx.set_ylim(bottom=0)
+    axx.axvline(current_date, color='grey', linestyle='--')
+    
+    axx = ax[2]
+    for sim_config, sim_results in results_dict.items():
+        rbp_factor, rr_factor, fpr_factor = sim_config
+        if rbp_factor == 1 and rr_factor == 1 and fpr_factor == 1:
+            c = 'k'
+            l='-'
+        else:
+            c = colors[rbp_factors.index(rbp_factor)](intensities[rr_factors.index(rr_factor)])
+            l = linestyles[fpr_factors.index(fpr_factor)]
+            
+        axx.plot(macro_t, sim_results['network_locked']/sim_results['circ_supply']*100, color=c, linestyle=l)
+    axx.plot(hist_kpi_df['date'], hist_kpi_df['network_locked']/hist_kpi_df['circ_supply']*100, color='k')
+    axx.set_ylabel('%%')
+    axx.set_title('L/CS')
+    for tick in axx.get_xticklabels(): tick.set_rotation(60)
+    custom_lines = [
+        Line2D([0], [0], color=mpl.colormaps['Greys'](intensities[0]), lw=2),
+        Line2D([0], [0], color='k', lw=2),
+        Line2D([0], [0], color=mpl.colormaps['Greys'](intensities[1]), lw=2),
+    ]
+    axx.legend(custom_lines, ['0.8x', '1x', '1.2x'], title='RR Factor')
+    axx.set_ylim(bottom=0)
+    axx.axvline(current_date, color='grey', linestyle='--')
+    
+    plt.suptitle('Supply Metrics')
+    plt.tight_layout()
+
+    plt.savefig(save_fp)
+
+def plot_onboarding_scenarios(hist_kpi_df, results_dict, start_date, current_date, end_date, rbp_factors, rr_factors, fpr_factors, save_fp):
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10,4))
+
+    macro_t = du.get_t(start_date, end_date=end_date)
+    colors = [mpl.colormaps['Blues'], mpl.colormaps['Oranges']]
+    intensities = np.linspace(0.3, 0.7, len(rr_factors))
+    linestyles = ['-.', ':']
+    
+    axx = ax[0]
+    for sim_config, sim_results in results_dict.items():
+        rbp_factor, rr_factor, fpr_factor = sim_config
+        if rbp_factor == 1 and rr_factor == 1 and fpr_factor == 1:
+            c = 'k'
+            l='-'
+        else:
+            c = colors[rbp_factors.index(rbp_factor)](intensities[rr_factors.index(rr_factor)])
+            l = linestyles[fpr_factors.index(fpr_factor)]
+            
+        axx.plot(macro_t, sim_results['day_pledge_per_QAP'], color=c, linestyle=l)
+    axx.plot(hist_kpi_df['date'], hist_kpi_df['day_pledge_per_QAP'], color='k')
+    axx.set_ylabel('FIL')
+    axx.set_title('Pledge/32GiB QAP Sector')
+    for tick in axx.get_xticklabels(): tick.set_rotation(60)
+    # setup the legend
+    custom_lines = [
+        Line2D([0], [0], color=colors[0](0.3), lw=2),
+        Line2D([0], [0], color='k', lw=2),
+        Line2D([0], [0], color=colors[1](0.7), lw=2)
+    ]
+    axx.legend(custom_lines, ['0.8x', '1x', '1.2x'], title='RBP Factor')
+    axx.set_ylim(bottom=0)
+    axx.axvline(current_date, color='grey', linestyle='--')
+    
+    axx = ax[1]
+    for sim_config, sim_results in results_dict.items():
+        rbp_factor, rr_factor, fpr_factor = sim_config
+        if rbp_factor == 1 and rr_factor == 1 and fpr_factor == 1:
+            c = 'k'
+            l='-'
+        else:
+            c = colors[rbp_factors.index(rbp_factor)](intensities[rr_factors.index(rr_factor)])
+            l = linestyles[fpr_factors.index(fpr_factor)]
+
+        # fofr = sim_results['1y_sector_roi']*100
+        # axx.plot(macro_t[0:len(fofr)], fofr, color=c, linestyle=l)
+        dpqq_full = np.concatenate([hist_kpi_df['day_pledge_per_QAP'].values, sim_results['day_pledge_per_QAP']])
+        drps_full = np.concatenate([hist_kpi_df['day_rewards_per_sector'].values, sim_results['day_rewards_per_sector']])
+        days_1y = 365
+        rps_1y = np.convolve(drps_full, np.ones(days_1y), mode='full')[days_1y-1:1-days_1y]
+        roi_1y = rps_1y / dpqq_full[:1-days_1y]
+        fofr_tvec = pd.date_range(hist_kpi_df['date'].iloc[0], periods=len(roi_1y), freq='D')
+        axx.plot(fofr_tvec, roi_1y*100, color=c, linestyle=l)
+        
+    axx.set_ylabel('%')
+    axx.set_title('1Y FoFR')
+    for tick in axx.get_xticklabels(): tick.set_rotation(60)
+    custom_lines = [
+        Line2D([0], [0], color='k', lw=2, linestyle='-.'),
+        Line2D([0], [0], color='k', lw=2),
+        Line2D([0], [0], color='k', lw=2, linestyle=':'),
+    ]
+    axx.legend(custom_lines, ['0.8x', '1x', '1.2x'], title='FPR Factor')
+    axx.set_ylim(bottom=0)
+    axx.axvline(current_date, color='grey', linestyle='--')
+    
+    plt.suptitle('Onboarding Metrics')
+    plt.tight_layout()
+
+    plt.savefig(save_fp)
