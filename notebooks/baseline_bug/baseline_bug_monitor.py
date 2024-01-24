@@ -28,6 +28,7 @@ import scenario_generator.curated as curated
 import scenario_generator.mcmc_forecast as mcmc
 
 import pystarboard.data
+import yfinance as yf
 
 import plot_utils as pu
 
@@ -51,7 +52,7 @@ def generate_mcmc_forecast_samples(train_start_date: date,
                                    num_chains_mcmc: int = 2,
                                    verbose: bool = False):
     if verbose: print("Forecasting Onboarding Power")
-    forecast_rb_date_vec, rb_onboard_power_pred, historical_rb_date, historical_rb, rb_rhats = \
+    _, rb_onboard_power_pred, historical_rb_date, historical_rb, rb_rhats = \
         mcmc.forecast_rb_onboard_power(train_start_date, 
                                        train_end_date,
                                        forecast_length,
@@ -62,7 +63,7 @@ def generate_mcmc_forecast_samples(train_start_date: date,
                                        verbose = verbose)
     
     if verbose: print("Forecasting Renewal Rate")
-    forecast_rr_date_vec, renewal_rate_pred, historical_rr_date , historical_rr, ext_rhats, expire_rhats = \
+    _, renewal_rate_pred, historical_rr_date , historical_rr, ext_rhats, expire_rhats = \
         mcmc.forecast_renewal_rate(train_start_date, 
                                    train_end_date,
                                    forecast_length,
@@ -72,8 +73,19 @@ def generate_mcmc_forecast_samples(train_start_date: date,
                                    num_chains_mcmc = num_chains_mcmc,
                                    verbose = verbose)
     
-    if verbose: print("Forecasting FIL+ Rate")
-    forecast_fpr_date_vec, filplus_rate_pred, historical_fpr_date, historical_fpr, fpr_rhat = \
+    if verbose: print("Forecasting FIL+ Rate via SGT")
+    _, filplus_rate_pred, historical_fpr_date, historical_fpr, deal_onboard_pred_rhats, cc_onboard_pred_rhats = \
+        mcmc.forecast_filplus_rate(train_start_date, 
+                                   train_end_date,
+                                   forecast_length,
+                                   num_warmup_mcmc = num_warmup_mcmc,
+                                   num_samples_mcmc = num_samples_mcmc,
+                                   seasonality_mcmc = seasonality_mcmc,
+                                   num_chains_mcmc = num_chains_mcmc,
+                                   verbose = verbose)
+
+    if verbose: print("Forecasting FIL+ Rate via Logistic Method")
+    forecast_fpr_logistic_date_vec, filplus_rate_logistic_pred, _, _, fpr_rhat = \
         mcmc.forecast_filplus_rate_logistic(
             train_end_date,
             forecast_length,
@@ -83,20 +95,48 @@ def generate_mcmc_forecast_samples(train_start_date: date,
             verbose = verbose
     )
     # truncate the FPR output to only the forecast, to be consistent with the other forecasts
-    forecast_ix = np.where(pd.to_datetime(forecast_fpr_date_vec) > pd.to_datetime(train_end_date))[0][0]
-    filplus_rate_pred = np.asarray(filplus_rate_pred)[:, forecast_ix:]
-    forecast_fpr_date_vec = forecast_fpr_date_vec[forecast_ix:]
+    forecast_ix = np.where(pd.to_datetime(forecast_fpr_logistic_date_vec) > pd.to_datetime(train_end_date))[0][0]
+    filplus_rate_logistic_pred = np.asarray(filplus_rate_logistic_pred)[:, forecast_ix:]
+    forecast_fpr_logistic_date_vec = forecast_fpr_logistic_date_vec[forecast_ix:]
+
+    # split + combine the FIL+ forecasts
+    filplus_rate_pred_spliced = np.zeros_like(filplus_rate_pred)
+    total_nummc = filplus_rate_pred.shape[0]
+    num_sgt = int(total_nummc*3./4.)
+    num_logistic = total_nummc - num_sgt
+    filplus_rate_pred_spliced[:num_sgt, :] = filplus_rate_pred[:num_sgt, :]
+    filplus_rate_pred_spliced[num_logistic:, :] = filplus_rate_logistic_pred[num_logistic:, :]
+    filplus_rate_pred_spliced = jnp.asarray(filplus_rate_pred_spliced)
+
+    # debugging
+    import pickle
+    with open('/tmp/debug.pkl', 'wb') as f:
+        pickle.dump({
+            'filplus_rate_pred_sgt': np.asarray(filplus_rate_pred),
+            'filplus_rate_pred_logistic': np.asarray(filplus_rate_logistic_pred),
+            'filplus_rate_pred_spliced': np.asarray(filplus_rate_pred_spliced),
+            'num_sgt': num_sgt,
+            'num_logistic': num_logistic,
+        }, f)
     
     diagnostics = {
         'rb_rhats': rb_rhats,
         'ext_rhats': ext_rhats,
         'expire_rhats': expire_rhats,
+        'deal_onboard_rhats': deal_onboard_pred_rhats,
+        'cc_onboard_rhats': cc_onboard_pred_rhats,
         'fpr_rhat': fpr_rhat,
     }
     
-    return rb_onboard_power_pred, renewal_rate_pred, filplus_rate_pred, historical_rb_date, historical_rb, historical_rr_date, historical_rr, historical_fpr_date, historical_fpr, diagnostics
+    return rb_onboard_power_pred, renewal_rate_pred, filplus_rate_logistic_pred, historical_rb_date, historical_rb, historical_rr_date, historical_rr, historical_fpr_date, historical_fpr, diagnostics
     
-@memory.cache
+def get_fil_historical_price(history_n_days=90):
+    fil = yf.Ticker('FIL-USD')
+    price = fil.history(period='max')
+    # filter to last N days
+    price = price.iloc[-history_n_days:]
+    return price['Close'].median()
+
 def run_mcmc(
     mcmc_train_start_date,
     mcmc_train_end_date,
@@ -207,6 +247,8 @@ def generate_network_mcmc_forecast_plots(
     save_fp_postfix=None,
     vlines=[],
     vline_labels=[],
+    hlines=[],
+    hline_labels=[],
 ):
     os.makedirs(save_dir, exist_ok=True)
     # plot inputs
@@ -242,6 +284,8 @@ def generate_network_mcmc_forecast_plots(
         end_date, 
         vlines,
         vline_labels,
+        hlines,
+        hline_labels,
         os.path.join(save_dir, fp)
     )
 
@@ -418,8 +462,8 @@ def main(
 
     ############################################################################
     ### MCMC Forecasting of user inputs
-    mcmc_train_start_date = current_date - timedelta(days=(mcmc_train_len_days))
-    mcmc_train_end_date = mcmc_train_start_date + timedelta(days=mcmc_train_len_days)
+    mcmc_train_end_date = forecast_start_date - timedelta(days=1)
+    mcmc_train_start_date = mcmc_train_end_date - timedelta(days=(mcmc_train_len_days))
     mcmc_data = run_mcmc(
         mcmc_train_start_date,
         mcmc_train_end_date,
@@ -435,12 +479,16 @@ def main(
     ext_rhat_check = mcmc.check_rhat(mcmc_trajectories.diagnostics['ext_rhats'])*100
     exp_rhat_check = mcmc.check_rhat(mcmc_trajectories.diagnostics['expire_rhats'])*100
     fpr_rhat_check = mcmc.check_rhat(mcmc_trajectories.diagnostics['fpr_rhat'])*100
+    deal_onboard_pred_rhats = mcmc.check_rhat(mcmc_trajectories.diagnostics['deal_onboard_rhats'])*100
+    cc_onboard_pred_rhats = mcmc.check_rhat(mcmc_trajectories.diagnostics['cc_onboard_rhats'])*100
 
     print('RBP Forecast RHat < 1.05: %0.02f %%' % rb_rhat_check)
     print('Extensions Forecast RHat < 1.05: %0.02f %%' % ext_rhat_check)
     print('Expirations Forecast RHat < 1.05: %0.02f %%' % exp_rhat_check)
     print('FIL+ Forecast RHat < 1.05: %0.02f %%' % fpr_rhat_check)
-    rhats = [rb_rhat_check, ext_rhat_check, exp_rhat_check, fpr_rhat_check]
+    print('Deal Onboarding Forecast RHat < 1.05: %0.02f %%' % deal_onboard_pred_rhats)
+    print('CC Onboarding Forecast RHat < 1.05: %0.02f %%' % cc_onboard_pred_rhats)
+    rhats = [rb_rhat_check, ext_rhat_check, exp_rhat_check, fpr_rhat_check, deal_onboard_pred_rhats, cc_onboard_pred_rhats]
     if np.any(np.asarray(rhats) < rhat_threshold_pct):
         raise ValueError('RHat check failed, please reconfigure MCMC with more samples or chains')
     ############################################################################
@@ -477,58 +525,60 @@ def main(
         output_dir,
     )
 
-    ################
-    # create scenarios for rbp/rr/fpr trajectories to see how they compare w/ MCMC for determining
-    # when the upgrade date should be
-    hist_inputs = get_onboarding_historical_data(current_date, history_days=30)  # use last 30 days as the anchor, and consider scenarios +/- 20% from that level
-    hist_inputs = SimpleNamespace(**hist_inputs)
-    hist_median_rbp = np.median(hist_inputs.hist_rbp)
-    hist_median_rr = np.median(hist_inputs.hist_rr)
-    hist_median_fpr = np.median(hist_inputs.hist_fpr)
+    # ################
+    # # create scenarios for rbp/rr/fpr trajectories to see how they compare w/ MCMC for determining
+    # # when the upgrade date should be
+    # hist_inputs = get_onboarding_historical_data(current_date, history_days=30)  # use last 30 days as the anchor, and consider scenarios +/- 20% from that level
+    # hist_inputs = SimpleNamespace(**hist_inputs)
+    # hist_median_rbp = np.median(hist_inputs.hist_rbp)
+    # hist_median_rr = np.median(hist_inputs.hist_rr)
+    # hist_median_fpr = np.median(hist_inputs.hist_fpr)
 
-    rbp_factors = [0.8, 1.2]
-    rr_factors = [0.8, 1.2]
-    fpr_factors = [0.8, 1.2]
+    # rbp_factors = [0.8, 1.2]
+    # rr_factors = [0.8, 1.2]
+    # fpr_factors = [0.8, 1.2]
 
-    sim_configs = list(itertools.product(rbp_factors, rr_factors, fpr_factors))
-    sim_configs.insert(0, (1,1,1))
-    simconfig2results = {}
-    for sim_config in sim_configs:
-        rbp_factor, rr_factor, fpr_factor = sim_config
-        rbp_vec = jnp.ones(forecast_length) * hist_median_rbp * rbp_factor
-        rr_vec = jnp.ones(forecast_length) * min(0.99, hist_median_rr * rr_factor)
-        fpr_vec = jnp.ones(forecast_length) * min(0.99, hist_median_fpr * fpr_factor)
+    # sim_configs = list(itertools.product(rbp_factors, rr_factors, fpr_factors))
+    # sim_configs.insert(0, (1,1,1))
+    # simconfig2results = {}
+    # for sim_config in sim_configs:
+    #     rbp_factor, rr_factor, fpr_factor = sim_config
+    #     rbp_vec = jnp.ones(forecast_length) * hist_median_rbp * rbp_factor
+    #     rr_vec = jnp.ones(forecast_length) * min(0.99, hist_median_rr * rr_factor)
+    #     fpr_vec = jnp.ones(forecast_length) * min(0.99, hist_median_fpr * fpr_factor)
 
-        simulation_results = sim.run_sim(
-            rbp_vec,
-            rr_vec,
-            fpr_vec,
-            lock_target,
+    #     simulation_results = sim.run_sim(
+    #         rbp_vec,
+    #         rr_vec,
+    #         fpr_vec,
+    #         lock_target,
         
-            start_date,
-            current_date,
-            forecast_length,
-            sector_duration,
-            simulation_offline_data
-        )
-        simconfig2results[sim_config] = simulation_results
-    generate_scenario_forecast_plots(
-        simconfig2results,
-        rbp_factors,
-        rr_factors,
-        fpr_factors,
-        start_date, 
-        current_date, 
-        end_date, 
-        output_dir,
-        save_fp_prefix=None,
-        save_fp_postfix=None,
-    )
-    ################
+    #         start_date,
+    #         current_date,
+    #         forecast_length,
+    #         sector_duration,
+    #         simulation_offline_data
+    #     )
+    #     simconfig2results[sim_config] = simulation_results
+    # generate_scenario_forecast_plots(
+    #     simconfig2results,
+    #     rbp_factors,
+    #     rr_factors,
+    #     fpr_factors,
+    #     start_date, 
+    #     current_date, 
+    #     end_date, 
+    #     output_dir,
+    #     save_fp_prefix=None,
+    #     save_fp_postfix=None,
+    # )
+    # ################
+
     # check when the upgrade date should be, based on Locked criteria
     #  Should be when 5th percentile Locked is expected to reach 100M USD - 6 months
+    historical_median_price = get_fil_historical_price(history_n_days=90)
     target_value_locked_usd = 100e6
-    fil_price_vec = [3, 5, 10]
+    fil_price_vec = [historical_median_price, 3, 5, 10]
     filprice2lvd = {}
     for fil_price in fil_price_vec:
         lvd = get_locked_value_distribution(mcmc_results_vec, start_date, end_date, 
@@ -541,22 +591,24 @@ def main(
     # check when the upgrade date should be, based on the pledge criteria
     #  Should be the earliest date where NewPledge > 2*CurrentPledge
     # TODO: include scenarios here
-    upgrade_fil_price = 3
-    upgrade_date_mcmc = get_upgrade_date_mcmc(filprice2lvd, fil_price=upgrade_fil_price, q=0.05)
-    conservative_upgrade_date_scenarios = get_upgrade_date_scenario(
-        simconfig2results, 
-        start_date, 
-        end_date, 
-        fil_price=upgrade_fil_price, 
-        target_value_locked_usd=target_value_locked_usd
-    )
-    upgrade_date = min(upgrade_date_mcmc, conservative_upgrade_date_scenarios)
-    print('Upgrade Date: %s' % upgrade_date)
+    upgrade_fil_price = historical_median_price
+    upgrade_date_mcmc_q05 = get_upgrade_date_mcmc(filprice2lvd, fil_price=upgrade_fil_price, q=0.05)
+    upgrade_date_mcmc_q20 = get_upgrade_date_mcmc(filprice2lvd, fil_price=upgrade_fil_price, q=0.20)
+    # conservative_upgrade_date_scenarios = get_upgrade_date_scenario(
+    #     simconfig2results, 
+    #     start_date, 
+    #     end_date, 
+    #     fil_price=upgrade_fil_price, 
+    #     target_value_locked_usd=target_value_locked_usd
+    # )
+    # upgrade_date = min(upgrade_date_mcmc, conservative_upgrade_date_scenarios)
+    upgrade_date = upgrade_date_mcmc_q05
+    print('Upgrade Date: [ Q05=%s // Q20=%s ]' % (upgrade_date_mcmc_q05, upgrade_date_mcmc_q20))
     ###########################################################################################
 
     # for the chosen date, show the forecast of the network after the upgrade w/ the new pledge
     # and the old pledge
-    gamma_smooth_vec = create_gamma_vector(upgrade_date, forecast_length, current_date, ramp_len_days=90)
+    gamma_smooth_vec = create_gamma_vector(upgrade_date, forecast_length, current_date, ramp_len_days=180)
     mcmc_results_gamma_vec = []
     for ii in tqdm(range(num_samples_mcmc*num_chains_mcmc)):
         rbp_vec = mcmc_trajectories.rb_onboard_power_pred[ii,:]
@@ -601,6 +653,8 @@ def main(
         output_dir,
         vlines=vlines,
         vline_labels=vline_labels,
+        hlines=[100/3, 100/5, 100/10],
+        hline_labels=['$100M-TVL@$3/FIL', '$100M-TVL@$5/FIL', '$100M-TVL@$10/FIL'],
         save_fp_prefix='overlay',
     )
 

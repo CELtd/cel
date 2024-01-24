@@ -125,7 +125,7 @@ def plot_mcmc_power_panel(hist_kpi_df, simulation_results_vec, start_date, curre
     plt.tight_layout()
     plt.savefig(save_fp)
 
-def plot_mcmc_supply_panel(hist_kpi_df, simulation_results_vec, start_date, current_date, end_date, vlines, vline_labels, save_fp):
+def plot_mcmc_supply_panel(hist_kpi_df, simulation_results_vec, start_date, current_date, end_date, vlines, vline_labels, hlines, hline_labels, save_fp):
     fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(10,4))
 
     macro_t = du.get_t(start_date, end_date=end_date)
@@ -146,7 +146,11 @@ def plot_mcmc_supply_panel(hist_kpi_df, simulation_results_vec, start_date, curr
     for vline, vline_label, cidx in zip(vlines, vline_labels, cvec_idx):
         axx.axvline(vline, color=greys(cidx), linestyle='--', label=vline_label)
     axx.axvline(current_date, color='k', linestyle=':', linewidth=0.5, label='Forecast Start')
-    axx.axhline(100/3, color='red', linestyle='--', alpha=0.5, label='100M-USD TVL @$3/FIL')
+    # axx.axhline(100/3, color='red', linestyle='--', alpha=0.5, label='100M-USD TVL @$3/FIL')
+    purples = mpl.colormaps['Purples']
+    cvec_idx = np.linspace(0.9, 0.2, len(hlines))
+    for hline, hline_label, cidx in zip(hlines, hline_labels, cvec_idx):
+        axx.axhline(hline, color=purples(cidx), linestyle='--', label=hline_label)
     axx.legend(fontsize=8, loc='upper right')
     
     axx = ax[1]
@@ -340,12 +344,12 @@ def plot_mcmc_onboarding_panel_delta(simulation_results_vec, start_date, current
 
 def plot_locked_value_distribution(filprice2lvd, tvl_target, save_fp):
     qvec = [0.05, 0.25, 0.5, 0.75, 0.95]
-    fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(10,4))
+    fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(8,6))
     oranges = mpl.colormaps['Oranges']
     cvec_idx = np.linspace(0.9, 0.2, len(qvec))
     ii = 0
     for fil_price, lvd in filprice2lvd.items():
-        axx = ax[ii]
+        axx = ax[np.unravel_index(ii, (2,2))]
 
         date_quantiles = np.quantile(lvd, qvec, axis=0)
         axx.hist(lvd, bins=50)
@@ -356,11 +360,13 @@ def plot_locked_value_distribution(filprice2lvd, tvl_target, save_fp):
             jj += 1
 
         axx.set_xlabel('Date')
-        axx.set_title('%d USD/FIL' % (fil_price,))
+        if ii == 0:
+            axx.set_title('%0.02f USD/FIL \n Historical Median (90 days)' % (fil_price,))
+        else:
+            axx.set_title('%0.02f USD/FIL' % (fil_price,))
         for tick in axx.get_xticklabels(): tick.set_rotation(60)
-        axx.legend(fontsize=8)
         ii += 1
-    
+    axx.legend(fontsize=8)
     plt.suptitle('Crossing Date for TVL Target=%dM-USD' % (tvl_target/1e6,))
     plt.tight_layout()
     plt.savefig(save_fp)
