@@ -6,9 +6,10 @@ import mechafil_jax.date_utils as du
 from matplotlib.lines import Line2D
 
 import os
-colors = [mpl.colormaps['Blues'], mpl.colormaps['Oranges']]
+colors = [mpl.colormaps['Blues'], mpl.colormaps['Oranges'], mpl.colormaps['Greens'], mpl.colormaps['Purples'], mpl.colormaps['Reds'], mpl.colormaps['Greys']]
 
-def get_quantiles(jax_arr, qvec=[0.05, 0.25, 0.5, 0.75, 0.95]):
+# def get_quantiles(jax_arr, qvec=[0.05, 0.25, 0.5, 0.75, 0.95]):
+def get_quantiles(jax_arr, qvec=[0.2, 0.5, 0.8]):
     return np.quantile(jax_arr, qvec, axis=0)
 
 def plot_inputs(mcmc_trajectories, hist_inputs, current_date, save_fp):
@@ -22,9 +23,10 @@ def plot_inputs(mcmc_trajectories, hist_inputs, current_date, save_fp):
     axx = ax[0]
     axx.plot(hist_inputs.hist_plot_tvec_rbp, hist_inputs.hist_rbp, color='k')
     rbp_quantiles = get_quantiles(mcmc_trajectories.rb_onboard_power_pred)
-    axx.fill_between(t_pred, rbp_quantiles[0], rbp_quantiles[4], color=blues(0.2))
-    axx.fill_between(t_pred, rbp_quantiles[1], rbp_quantiles[3], color=blues(0.5))
-    axx.plot(t_pred, rbp_quantiles[2], color=blues(0.9))
+    # axx.fill_between(t_pred, rbp_quantiles[0], rbp_quantiles[4], color=blues(0.2))
+    # axx.fill_between(t_pred, rbp_quantiles[1], rbp_quantiles[3], color=blues(0.5))
+    axx.fill_between(t_pred, rbp_quantiles[0], rbp_quantiles[2], color=blues(0.2))
+    axx.plot(t_pred, rbp_quantiles[2], color=blues(0.6))
     axx.set_title('Onboarding')
     axx.set_ylabel('RBP/day')
     for tick in axx.get_xticklabels(): tick.set_rotation(60)
@@ -32,9 +34,10 @@ def plot_inputs(mcmc_trajectories, hist_inputs, current_date, save_fp):
     axx = ax[1]
     axx.plot(hist_inputs.hist_plot_tvec_rr, hist_inputs.hist_rr*100, color='k')
     rr_quantiles = get_quantiles(mcmc_trajectories.renewal_rate_pred*100)
-    axx.fill_between(t_pred, rr_quantiles[0], rr_quantiles[4], color=blues(0.2))
-    axx.fill_between(t_pred, rr_quantiles[1], rr_quantiles[3], color=blues(0.5))
-    axx.plot(t_pred, rr_quantiles[2], color=blues(0.9))
+    # axx.fill_between(t_pred, rr_quantiles[0], rr_quantiles[4], color=blues(0.2))
+    # axx.fill_between(t_pred, rr_quantiles[1], rr_quantiles[3], color=blues(0.5))
+    axx.fill_between(t_pred, rr_quantiles[0], rr_quantiles[2], color=blues(0.5))
+    axx.plot(t_pred, rr_quantiles[2], color=blues(0.6))
     axx.set_title('Renewals')
     axx.set_ylabel('%')
     for tick in axx.get_xticklabels(): tick.set_rotation(60)
@@ -42,9 +45,10 @@ def plot_inputs(mcmc_trajectories, hist_inputs, current_date, save_fp):
     axx = ax[2]
     axx.plot(hist_inputs.hist_plot_tvec_fpr, hist_inputs.hist_fpr*100, color='k')
     fpr_quantiles = get_quantiles(mcmc_trajectories.filplus_rate_pred*100)
-    axx.fill_between(t_pred, fpr_quantiles[0], fpr_quantiles[4], color=blues(0.2))
-    axx.fill_between(t_pred, fpr_quantiles[1], fpr_quantiles[3], color=blues(0.5))
-    axx.plot(t_pred, fpr_quantiles[2], color=blues(0.9))
+    # axx.fill_between(t_pred, fpr_quantiles[0], fpr_quantiles[4], color=blues(0.2))
+    # axx.fill_between(t_pred, fpr_quantiles[1], fpr_quantiles[3], color=blues(0.5))
+    axx.fill_between(t_pred, fpr_quantiles[0], fpr_quantiles[2], color=blues(0.5))
+    axx.plot(t_pred, fpr_quantiles[2], color=blues(0.6))
     axx.set_title('FIL+')
     axx.set_ylabel('%')
     for tick in axx.get_xticklabels(): tick.set_rotation(60)
@@ -59,19 +63,24 @@ def get_simresults_quantiles(sim_results_vec, key, qvec=[0.05, 0.25, 0.5, 0.75, 
     
     return np.nanquantile(np.asarray(key_results), qvec, axis=0)
 
-def plot_mcmc_power_panel(hist_kpi_df, simulation_results_vec, start_date, current_date, end_date, vlines, vline_labels, save_fp):
+def plot_mcmc_power_panel(hist_kpi_df, simulation_results_vec, simulation_results_labels, start_date, current_date, end_date, vlines, vline_labels, save_fp):
     fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(10,4))
 
     macro_t = du.get_t(start_date, end_date=end_date)
 
+    if simulation_results_labels is None:
+        simulation_results_labels = ['']*len(simulation_results_vec)
+
     axx = ax[0]
     alpha_vec = np.ones(len(simulation_results_vec)) / len(simulation_results_vec)
-    for simulation_results, color, alpha in zip(simulation_results_vec, colors, alpha_vec):
+    for simulation_results, label, color, alpha in zip(simulation_results_vec, simulation_results_labels, colors, alpha_vec):
         yy = get_simresults_quantiles(simulation_results, key='rb_total_power_eib')
         axx.plot(hist_kpi_df['date'], hist_kpi_df['total_raw_power_eib'], color='k')
-        axx.fill_between(macro_t, yy[0], yy[4], color=color(0.2), alpha=alpha)
-        axx.fill_between(macro_t, yy[1], yy[3], color=color(0.5), alpha=alpha)
-        axx.plot(macro_t, yy[2], color=color(0.9))
+        # axx.fill_between(macro_t, yy[0], yy[4], color=color(0.2), alpha=alpha)
+        # axx.fill_between(macro_t, yy[1], yy[3], color=color(0.5), alpha=alpha)
+        # axx.plot(macro_t, yy[2], color=color(0.9), label=label)
+        axx.fill_between(macro_t, yy[0], yy[2], color=color(0.2), alpha=alpha)
+        axx.plot(macro_t, yy[1], color=color(0.6), label=label)
     axx.set_ylabel('EiB')
     axx.set_title('RBP')
     # axx.legend(fontsize=8)
@@ -85,32 +94,37 @@ def plot_mcmc_power_panel(hist_kpi_df, simulation_results_vec, start_date, curre
     axx.legend()
     
     axx = ax[1]
-    for simulation_results, color, alpha in zip(simulation_results_vec, colors, alpha_vec):
+    for simulation_results, label, color, alpha in zip(simulation_results_vec, simulation_results_labels, colors, alpha_vec):
         yy = get_simresults_quantiles(simulation_results, key='qa_total_power_eib')
         axx.plot(hist_kpi_df['date'], hist_kpi_df['qa_total_power_eib'], color='k')
-        axx.fill_between(macro_t, yy[0], yy[4], color=color(0.2), alpha=alpha)
-        axx.fill_between(macro_t, yy[1], yy[3], color=color(0.5), alpha=alpha)
-        axx.plot(macro_t, yy[2], color=color(0.9))
+        # axx.fill_between(macro_t, yy[0], yy[4], color=color(0.2), alpha=alpha)
+        # axx.fill_between(macro_t, yy[1], yy[3], color=color(0.5), alpha=alpha)
+        # axx.plot(macro_t, yy[2], color=color(0.9), label=label)
+        axx.fill_between(macro_t, yy[0], yy[2], color=color(0.2), alpha=alpha)
+        axx.plot(macro_t, yy[1], color=color(0.6))
     baseline = get_simresults_quantiles(simulation_results, key='network_baseline_EIB', qvec=[0.5])
     axx.plot(macro_t, baseline[0], color='k', linestyle='--', label='Baseline')
     axx.set_ylabel('EiB')
     axx.set_title('QAP')
     axx.legend(fontsize=8)
-    axx.set_ylim(bottom=0)
+    axx.set_ylim(bottom=0, top=50)
     for tick in axx.get_xticklabels(): tick.set_rotation(60)
     greys = mpl.colormaps['Greys']
     cvec_idx = np.linspace(0.9, 0.2, len(vlines))
     for vline, vline_label, cidx in zip(vlines, vline_labels, cvec_idx):
         axx.axvline(vline, color=greys(cidx), linestyle='--', label=vline_label)
     axx.axvline(current_date, color='k', linestyle=':', linewidth=0.5, label='Forecast Start')
-    
+    # axx.set_yscale('log')
+
     axx = ax[2]
-    for simulation_results, color, alpha in zip(simulation_results_vec, colors, alpha_vec):
+    for simulation_results, label, color, alpha in zip(simulation_results_vec, simulation_results_labels, colors, alpha_vec):
         yy = get_simresults_quantiles(simulation_results, key='day_network_reward')
         axx.plot(hist_kpi_df['date'], hist_kpi_df['day_network_reward'], color='k')
-        axx.fill_between(macro_t, yy[0], yy[4], color=color(0.2), alpha=alpha)
-        axx.fill_between(macro_t, yy[1], yy[3], color=color(0.5), alpha=alpha)
-        axx.plot(macro_t, yy[2], color=color(0.9))
+        # axx.fill_between(macro_t, yy[0], yy[4], color=color(0.2), alpha=alpha)
+        # axx.fill_between(macro_t, yy[1], yy[3], color=color(0.5), alpha=alpha)
+        # axx.plot(macro_t, yy[2], color=color(0.9), label=label)
+        axx.fill_between(macro_t, yy[0], yy[2], color=color(0.2), alpha=alpha)
+        axx.plot(macro_t, yy[1], color=color(0.6), label=label)
     axx.set_ylabel('FIL/day')
     axx.set_title('Minting Rate')
     # axx.legend(fontsize=8)
@@ -125,18 +139,23 @@ def plot_mcmc_power_panel(hist_kpi_df, simulation_results_vec, start_date, curre
     plt.tight_layout()
     plt.savefig(save_fp)
 
-def plot_mcmc_supply_panel(hist_kpi_df, simulation_results_vec, start_date, current_date, end_date, vlines, vline_labels, hlines, hline_labels, save_fp):
-    fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(10,4))
+def plot_mcmc_supply_panel(hist_kpi_df, simulation_results_vec, simulation_results_labels, start_date, current_date, end_date, vlines, vline_labels, hlines, hline_labels, save_fp):
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10,4))
 
     macro_t = du.get_t(start_date, end_date=end_date)
+    if simulation_results_labels is None:
+        simulation_results_labels = ['']*len(simulation_results_vec)
+
     axx = ax[0]
     alpha_vec = np.ones(len(simulation_results_vec)) / len(simulation_results_vec)
-    for simulation_results, color, alpha in zip(simulation_results_vec, colors, alpha_vec):
+    for simulation_results, label, color, alpha in zip(simulation_results_vec, simulation_results_labels, colors, alpha_vec):
         yy = get_simresults_quantiles(simulation_results, key='network_locked')/1e6
         axx.plot(hist_kpi_df['date'], hist_kpi_df['network_locked']/1e6, color='k')
-        axx.fill_between(macro_t, yy[0], yy[4], color=color(0.2), alpha=alpha)
-        axx.fill_between(macro_t, yy[1], yy[3], color=color(0.5), alpha=alpha)
-        axx.plot(macro_t, yy[2], color=color(0.9))
+        # axx.fill_between(macro_t, yy[0], yy[4], color=color(0.2), alpha=alpha)
+        # axx.fill_between(macro_t, yy[1], yy[3], color=color(0.5), alpha=alpha)
+        # axx.plot(macro_t, yy[2], color=color(0.9), label=label)
+        axx.fill_between(macro_t, yy[0], yy[2], color=color(0.2), alpha=alpha)
+        axx.plot(macro_t, yy[1], color=color(0.6))
     axx.set_ylabel('M-FIL')
     axx.set_title('Network Locked')
     axx.set_ylim(bottom=0)
@@ -145,46 +164,49 @@ def plot_mcmc_supply_panel(hist_kpi_df, simulation_results_vec, start_date, curr
     cvec_idx = np.linspace(0.9, 0.2, len(vlines))
     for vline, vline_label, cidx in zip(vlines, vline_labels, cvec_idx):
         axx.axvline(vline, color=greys(cidx), linestyle='--', label=vline_label)
-    axx.axvline(current_date, color='k', linestyle=':', linewidth=0.5, label='Forecast Start')
-    # axx.axhline(100/3, color='red', linestyle='--', alpha=0.5, label='100M-USD TVL @$3/FIL')
-    purples = mpl.colormaps['Purples']
+    # axx.axvline(current_date, color='k', linestyle=':', linewidth=0.5, label='Forecast Start')
+    axx.axvline(current_date, color='k', linestyle=':', linewidth=0.5)
     cvec_idx = np.linspace(0.9, 0.2, len(hlines))
     for hline, hline_label, cidx in zip(hlines, hline_labels, cvec_idx):
-        axx.axhline(hline, color=purples(cidx), linestyle='--', label=hline_label)
+        axx.axhline(hline, color=colors[-1](cidx), linestyle='--', label=hline_label)
     axx.legend(fontsize=8, loc='upper right')
+    
+    # axx = ax[1]
+    # alpha_vec = np.ones(len(simulation_results_vec)) / len(simulation_results_vec)
+    # for simulation_results, label, color, alpha in zip(simulation_results_vec, simulation_results_labels, colors, alpha_vec):
+    #     yy = get_simresults_quantiles(simulation_results, key='circ_supply')/1e6
+    #     axx.plot(hist_kpi_df['date'], hist_kpi_df['circ_supply']/1e6, color='k')
+    #     # axx.fill_between(macro_t, yy[0], yy[4], color=color(0.2), alpha=alpha)
+    #     # axx.fill_between(macro_t, yy[1], yy[3], color=color(0.5), alpha=alpha)
+    #     # axx.plot(macro_t, yy[2], color=color(0.9), label=label)
+    #     axx.fill_between(macro_t, yy[0], yy[2], color=color(0.2), alpha=alpha)
+    #     axx.plot(macro_t, yy[1], color=color(0.6), label=label)
+    # axx.set_ylabel('M-FIL')
+    # axx.set_title('Circulating Supply')
+    # # axx.legend(fontsize=8)
+    # axx.set_ylim(bottom=0)
+    # for tick in axx.get_xticklabels(): tick.set_rotation(60)
+    # axx.axvline(current_date, color='grey', linestyle='--')
+    # greys = mpl.colormaps['Greys']
+    # cvec_idx = np.linspace(0.9, 0.2, len(vlines))
+    # for vline, vline_label, cidx in zip(vlines, vline_labels, cvec_idx):
+    #     axx.axvline(vline, color=greys(cidx), linestyle='--', label=vline_label)
+    # axx.axvline(current_date, color='k', linestyle=':', linewidth=0.5, label='Forecast Start')
     
     axx = ax[1]
     alpha_vec = np.ones(len(simulation_results_vec)) / len(simulation_results_vec)
-    for simulation_results, color, alpha in zip(simulation_results_vec, colors, alpha_vec):
-        yy = get_simresults_quantiles(simulation_results, key='circ_supply')/1e6
-        axx.plot(hist_kpi_df['date'], hist_kpi_df['circ_supply']/1e6, color='k')
-        axx.fill_between(macro_t, yy[0], yy[4], color=color(0.2), alpha=alpha)
-        axx.fill_between(macro_t, yy[1], yy[3], color=color(0.5), alpha=alpha)
-        axx.plot(macro_t, yy[2], color=color(0.9))
-    axx.set_ylabel('M-FIL')
-    axx.set_title('Circulating Supply')
-    # axx.legend(fontsize=8)
-    axx.set_ylim(bottom=0)
-    for tick in axx.get_xticklabels(): tick.set_rotation(60)
-    axx.axvline(current_date, color='grey', linestyle='--')
-    greys = mpl.colormaps['Greys']
-    cvec_idx = np.linspace(0.9, 0.2, len(vlines))
-    for vline, vline_label, cidx in zip(vlines, vline_labels, cvec_idx):
-        axx.axvline(vline, color=greys(cidx), linestyle='--', label=vline_label)
-    axx.axvline(current_date, color='k', linestyle=':', linewidth=0.5, label='Forecast Start')
-    
-    axx = ax[2]
-    alpha_vec = np.ones(len(simulation_results_vec)) / len(simulation_results_vec)
-    for simulation_results, color, alpha in zip(simulation_results_vec, colors, alpha_vec):
+    for simulation_results, label, color, alpha in zip(simulation_results_vec, simulation_results_labels, colors, alpha_vec):
         key_results = []
         for sr in simulation_results:
             key_results.append(np.asarray(sr['network_locked']/sr['circ_supply']))  # convert jax to np
         lcs_q = np.nanquantile(np.asarray(key_results), [0.05, 0.25, 0.5, 0.75, 0.95], axis=0)*100
         
         axx.plot(hist_kpi_df['date'], hist_kpi_df['network_locked']/hist_kpi_df['circ_supply']*100, color='k')
-        axx.fill_between(macro_t, lcs_q[0], lcs_q[4], color=color(0.2), alpha=alpha)
-        axx.fill_between(macro_t, lcs_q[1], lcs_q[3], color=color(0.5), alpha=alpha)
-        axx.plot(macro_t, lcs_q[2], color=color(0.9))
+        # axx.fill_between(macro_t, lcs_q[0], lcs_q[4], color=color(0.2), alpha=alpha)
+        # axx.fill_between(macro_t, lcs_q[1], lcs_q[3], color=color(0.5), alpha=alpha)
+        # axx.plot(macro_t, lcs_q[2], color=color(0.9), label=label)
+        axx.fill_between(macro_t, lcs_q[0], lcs_q[2], color=color(0.2), alpha=alpha)
+        axx.plot(macro_t, lcs_q[1], color=color(0.6), label=label)
     axx.set_ylabel('%')
     axx.set_title('L/CS')
     axx.set_ylim(bottom=0)
@@ -249,28 +271,33 @@ def plot_mcmc_supply_panel_delta(simulation_results_vec, start_date, current_dat
     plt.tight_layout()
     plt.savefig(save_fp)
 
-def plot_mcmc_onboarding_panel(hist_kpi_df, simulation_results_vec, start_date, current_date, end_date, vlines, vline_labels, save_fp):
+def plot_mcmc_onboarding_panel(hist_kpi_df, simulation_results_vec, simulation_results_labels, start_date, current_date, end_date, vlines, vline_labels, save_fp):
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10,4))
 
     macro_t = du.get_t(start_date, end_date=end_date)
+    if simulation_results_labels is None:
+        simulation_results_labels = ['']*len(simulation_results_vec)
+
     axx = ax[0]
     alpha_vec = np.ones(len(simulation_results_vec)) / len(simulation_results_vec)
-    for simulation_results, color, alpha in zip(simulation_results_vec, colors, alpha_vec):
+    for simulation_results, label, color, alpha in zip(simulation_results_vec, simulation_results_labels, colors, alpha_vec):
         yy = get_simresults_quantiles(simulation_results, key='day_pledge_per_QAP')
         axx.plot(hist_kpi_df['date'], hist_kpi_df['day_pledge_per_QAP'], color='k')
-        axx.fill_between(macro_t, yy[0], yy[4], color=color(0.2), alpha=alpha)
-        axx.fill_between(macro_t, yy[1], yy[3], color=color(0.5), alpha=alpha)
-        axx.plot(macro_t, yy[2], color=color(0.9))
+        # axx.fill_between(macro_t, yy[0], yy[4], color=color(0.2), alpha=alpha)
+        # axx.fill_between(macro_t, yy[1], yy[3], color=color(0.5), alpha=alpha)
+        # axx.plot(macro_t, yy[2], color=color(0.9), label=label)
+        axx.fill_between(macro_t, yy[0], yy[2], color=color(0.2), alpha=alpha)
+        axx.plot(macro_t, yy[1], color=color(0.6), label=label)
     axx.set_ylabel('FIL')
     axx.set_title('Pledge/32GiB QA Sector')
-    # axx.legend(fontsize=8)
+    axx.legend(fontsize=8)
     axx.set_ylim(bottom=0)
     for tick in axx.get_xticklabels(): tick.set_rotation(60)
     axx.axvline(current_date, color='grey', linestyle='--')
     
     axx = ax[1]
     alpha_vec = np.ones(len(simulation_results_vec)) / len(simulation_results_vec)
-    for simulation_results, color, alpha in zip(simulation_results_vec, colors, alpha_vec):
+    for simulation_results, label, color, alpha in zip(simulation_results_vec, simulation_results_labels, colors, alpha_vec):
         key_results = []
         for sr in simulation_results:
             # we need to create new time-series and append historical to forecast to compute a smooth FoFR plot
@@ -283,9 +310,11 @@ def plot_mcmc_onboarding_panel(hist_kpi_df, simulation_results_vec, start_date, 
 
         fofr = np.nanquantile(np.asarray(key_results), [0.05, 0.25, 0.5, 0.75, 0.95], axis=0)
         fofr_tvec = pd.date_range(hist_kpi_df['date'].iloc[0], periods=len(fofr[0]), freq='D')
-        axx.fill_between(fofr_tvec, fofr[0], fofr[4], color=color(0.2), alpha=alpha)
-        axx.fill_between(fofr_tvec, fofr[1], fofr[3], color=color(0.5), alpha=alpha)
-        axx.plot(fofr_tvec, fofr[2], color=color(0.9))
+        # axx.fill_between(fofr_tvec, fofr[0], fofr[4], color=color(0.2), alpha=alpha)
+        # axx.fill_between(fofr_tvec, fofr[1], fofr[3], color=color(0.5), alpha=alpha)
+        # axx.plot(fofr_tvec, fofr[2], color=color(0.9), label=label)
+        axx.fill_between(fofr_tvec, fofr[0], fofr[2], color=color(0.2), alpha=alpha)
+        axx.plot(fofr_tvec, fofr[1], color=color(0.6), label=label)
 
     axx.set_ylabel('%')
     axx.set_title('1Y Realized FoFR')
@@ -344,12 +373,13 @@ def plot_mcmc_onboarding_panel_delta(simulation_results_vec, start_date, current
 
 def plot_locked_value_distribution(filprice2lvd, tvl_target, save_fp):
     qvec = [0.05, 0.25, 0.5, 0.75, 0.95]
-    fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(8,6))
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(8,3))
     oranges = mpl.colormaps['Oranges']
     cvec_idx = np.linspace(0.9, 0.2, len(qvec))
     ii = 0
     for fil_price, lvd in filprice2lvd.items():
-        axx = ax[np.unravel_index(ii, (2,2))]
+        # axx = ax[np.unravel_index(ii, (2,2))]
+        axx = ax[ii]
 
         date_quantiles = np.quantile(lvd, qvec, axis=0)
         axx.hist(lvd, bins=50)
@@ -366,7 +396,7 @@ def plot_locked_value_distribution(filprice2lvd, tvl_target, save_fp):
             axx.set_title('%0.02f USD/FIL' % (fil_price,))
         for tick in axx.get_xticklabels(): tick.set_rotation(60)
         ii += 1
-    axx.legend(fontsize=8)
+        axx.legend(fontsize=8)
     plt.suptitle('Crossing Date for TVL Target=%dM-USD' % (tvl_target/1e6,))
     plt.tight_layout()
     plt.savefig(save_fp)

@@ -84,6 +84,7 @@ def generate_mcmc_forecast_samples(train_start_date: date,
                                    num_chains_mcmc = num_chains_mcmc,
                                    verbose = verbose)
 
+    ########################## TODO: decide if we want to do this ########################
     if verbose: print("Forecasting FIL+ Rate via Logistic Method")
     forecast_fpr_logistic_date_vec, filplus_rate_logistic_pred, _, _, fpr_rhat = \
         mcmc.forecast_filplus_rate_logistic(
@@ -106,18 +107,19 @@ def generate_mcmc_forecast_samples(train_start_date: date,
     num_logistic = total_nummc - num_sgt
     filplus_rate_pred_spliced[:num_sgt, :] = filplus_rate_pred[:num_sgt, :]
     filplus_rate_pred_spliced[num_logistic:, :] = filplus_rate_logistic_pred[num_logistic:, :]
-    filplus_rate_pred_spliced = jnp.asarray(filplus_rate_pred_spliced)
+    filplus_rate_pred_spliced = jnp.copy(jnp.asarray(filplus_rate_pred_spliced))
+    ##########################################################################################
 
-    # debugging
-    import pickle
-    with open('/tmp/debug.pkl', 'wb') as f:
-        pickle.dump({
-            'filplus_rate_pred_sgt': np.asarray(filplus_rate_pred),
-            'filplus_rate_pred_logistic': np.asarray(filplus_rate_logistic_pred),
-            'filplus_rate_pred_spliced': np.asarray(filplus_rate_pred_spliced),
-            'num_sgt': num_sgt,
-            'num_logistic': num_logistic,
-        }, f)
+    # # debugging
+    # import pickle
+    # with open('/tmp/debug.pkl', 'wb') as f:
+    #     pickle.dump({
+    #         'filplus_rate_pred_sgt': np.asarray(filplus_rate_pred),
+    #         'filplus_rate_pred_logistic': np.asarray(filplus_rate_logistic_pred),
+    #         'filplus_rate_pred_spliced': np.asarray(filplus_rate_pred_spliced),
+    #         'num_sgt': num_sgt,
+    #         'num_logistic': num_logistic,
+    #     }, f)
     
     diagnostics = {
         'rb_rhats': rb_rhats,
@@ -128,7 +130,7 @@ def generate_mcmc_forecast_samples(train_start_date: date,
         'fpr_rhat': fpr_rhat,
     }
     
-    return rb_onboard_power_pred, renewal_rate_pred, filplus_rate_logistic_pred, historical_rb_date, historical_rb, historical_rr_date, historical_rr, historical_fpr_date, historical_fpr, diagnostics
+    return rb_onboard_power_pred, renewal_rate_pred, filplus_rate_pred_spliced, historical_rb_date, historical_rb, historical_rr_date, historical_rr, historical_fpr_date, historical_fpr, diagnostics
     
 def get_fil_historical_price(history_n_days=90):
     fil = yf.Ticker('FIL-USD')
@@ -183,11 +185,17 @@ def get_onboarding_historical_data(current_date, history_days=360):
     }
 
 @memory.cache
-def get_historical_kpis(start_date, current_date, end_date):
-    hist_df = pystarboard.data.get_historical_network_stats(start_date-timedelta(days=360), current_date, end_date)
-    hist_expire_df = pystarboard.data.query_sector_expirations(start_date-timedelta(days=360), current_date)
+def get_historical_kpis(start_date, current_date):
+    # hist_df = pystarboard.data.get_historical_network_stats(start_date-timedelta(days=360), current_date, end_date)
+    # hist_expire_df = pystarboard.data.query_sector_expirations(start_date-timedelta(days=360), current_date)
+    # hist_econ_df = pystarboard.data.query_sector_economics(
+    #     start_date-timedelta(days=360), 
+    #     current_date, 
+    # )
+    hist_df = pystarboard.data.get_historical_network_stats(start_date, current_date, current_date)
+    hist_expire_df = pystarboard.data.query_sector_expirations(start_date, current_date)
     hist_econ_df = pystarboard.data.query_sector_economics(
-        start_date-timedelta(days=360), 
+        start_date, 
         current_date, 
     )
         
@@ -239,6 +247,7 @@ def fix_fp(fp, prefix=None, postfix=None):
 def generate_network_mcmc_forecast_plots(
     mcmc_trajectories, 
     mcmc_simulation_results_vec, 
+    labels_vec,
     start_date, 
     current_date, 
     end_date, 
@@ -252,7 +261,7 @@ def generate_network_mcmc_forecast_plots(
 ):
     os.makedirs(save_dir, exist_ok=True)
     # plot inputs
-    hist_inputs = get_onboarding_historical_data(current_date, history_days=360)
+    hist_inputs = get_onboarding_historical_data(current_date, history_days=180)
     hist_inputs = SimpleNamespace(**hist_inputs)
     fp = fix_fp('inputs.png', prefix=save_fp_prefix, postfix=save_fp_postfix)
     pu.plot_inputs(mcmc_trajectories, hist_inputs, current_date, os.path.join(save_dir, fp))
@@ -260,13 +269,14 @@ def generate_network_mcmc_forecast_plots(
     hist_kpi_df = get_historical_kpis(
         current_date-timedelta(days=180), 
         current_date, 
-        current_date+timedelta(days=365*2)
+        # current_date+timedelta(days=365*2)
     )
 
     fp = fix_fp('power.png', prefix=save_fp_prefix, postfix=save_fp_postfix)
     pu.plot_mcmc_power_panel(
         hist_kpi_df, 
         mcmc_simulation_results_vec, 
+        labels_vec,
         start_date, 
         current_date, 
         end_date, 
@@ -279,6 +289,7 @@ def generate_network_mcmc_forecast_plots(
     pu.plot_mcmc_supply_panel(
         hist_kpi_df, 
         mcmc_simulation_results_vec, 
+        labels_vec,
         start_date, 
         current_date, 
         end_date, 
@@ -293,6 +304,7 @@ def generate_network_mcmc_forecast_plots(
     pu.plot_mcmc_onboarding_panel(
         hist_kpi_df,
         mcmc_simulation_results_vec,
+        labels_vec,
         start_date,
         current_date,
         end_date,
@@ -426,12 +438,13 @@ def get_upgrade_date_scenario(sim2configresults, start_date, end_date, fil_price
 
 def create_gamma_vector(upgrade_date, forecast_length, current_date, ramp_len_days=90):
     gamma_smooth = np.ones(forecast_length)
-    update_day_end = pd.to_datetime(upgrade_date)
-    update_day_start = update_day_end - timedelta(days=ramp_len_days)
-    ramp_gamma = np.linspace(1, 0.7, (update_day_end-update_day_start).days)
-    ramp_start_idx = (update_day_start-pd.to_datetime(current_date)).days
-    ramp_end_idx = (update_day_end-pd.to_datetime(current_date)).days
-    gamma_smooth[ramp_start_idx:ramp_end_idx] = ramp_gamma
+    update_day = (upgrade_date-pd.to_datetime(current_date)).days
+
+    ramp_gamma = np.linspace(1, 0.7, ramp_len_days)
+    
+    ramp_start_idx = update_day
+    ramp_end_idx = min(forecast_length, ramp_start_idx + ramp_len_days)
+    gamma_smooth[ramp_start_idx:ramp_end_idx] = ramp_gamma[0:(ramp_end_idx-ramp_start_idx)]
     gamma_smooth[ramp_end_idx:] = 0.7
     return gamma_smooth
 
@@ -455,7 +468,7 @@ def main(
     current_date = forecast_start_date  # legacy variable naming that's sort of hard to understand
     start_date = current_date - timedelta(days=3)  # historical data for forecasting.  keep this as short as possible
                                                    # to reduce locking discrepancy
-    forecast_length = 365*2  # forecast upto 2 yrs in the future
+    forecast_length = 365*3
     end_date = current_date + timedelta(days=forecast_length)
 
     pystarboard.data.setup_spacescope(auth_token)
@@ -496,57 +509,11 @@ def main(
     # run simulation for forecasted input trajectories
     simulation_offline_data = download_simulation_data(auth_token, start_date, current_date, end_date)
 
-    mcmc_results_vec = []
-    for ii in tqdm(range(num_samples_mcmc*num_chains_mcmc)):
-        rbp_vec = mcmc_trajectories.rb_onboard_power_pred[ii,:]
-        rr_vec = mcmc_trajectories.renewal_rate_pred[ii,:]
-        fpr_vec = mcmc_trajectories.filplus_rate_pred[ii,:]
-        simulation_results = sim.run_sim(
-            rbp_vec,
-            rr_vec,
-            fpr_vec,
-            lock_target,
-        
-            start_date,
-            current_date,
-            forecast_length,
-            sector_duration,
-            simulation_offline_data
-        )
-        mcmc_results_vec.append(simulation_results)
-
-    # plots
-    generate_network_mcmc_forecast_plots(
-        mcmc_trajectories, 
-        [mcmc_results_vec], 
-        start_date, 
-        current_date, 
-        end_date, 
-        output_dir,
-    )
-
-    # ################
-    # # create scenarios for rbp/rr/fpr trajectories to see how they compare w/ MCMC for determining
-    # # when the upgrade date should be
-    # hist_inputs = get_onboarding_historical_data(current_date, history_days=30)  # use last 30 days as the anchor, and consider scenarios +/- 20% from that level
-    # hist_inputs = SimpleNamespace(**hist_inputs)
-    # hist_median_rbp = np.median(hist_inputs.hist_rbp)
-    # hist_median_rr = np.median(hist_inputs.hist_rr)
-    # hist_median_fpr = np.median(hist_inputs.hist_fpr)
-
-    # rbp_factors = [0.8, 1.2]
-    # rr_factors = [0.8, 1.2]
-    # fpr_factors = [0.8, 1.2]
-
-    # sim_configs = list(itertools.product(rbp_factors, rr_factors, fpr_factors))
-    # sim_configs.insert(0, (1,1,1))
-    # simconfig2results = {}
-    # for sim_config in sim_configs:
-    #     rbp_factor, rr_factor, fpr_factor = sim_config
-    #     rbp_vec = jnp.ones(forecast_length) * hist_median_rbp * rbp_factor
-    #     rr_vec = jnp.ones(forecast_length) * min(0.99, hist_median_rr * rr_factor)
-    #     fpr_vec = jnp.ones(forecast_length) * min(0.99, hist_median_fpr * fpr_factor)
-
+    # mcmc_results_vec = []
+    # for ii in tqdm(range(num_samples_mcmc*num_chains_mcmc)):
+    #     rbp_vec = mcmc_trajectories.rb_onboard_power_pred[ii,:]
+    #     rr_vec = mcmc_trajectories.renewal_rate_pred[ii,:]
+    #     fpr_vec = mcmc_trajectories.filplus_rate_pred[ii,:]
     #     simulation_results = sim.run_sim(
     #         rbp_vec,
     #         rr_vec,
@@ -559,41 +526,88 @@ def main(
     #         sector_duration,
     #         simulation_offline_data
     #     )
-    #     simconfig2results[sim_config] = simulation_results
-    # generate_scenario_forecast_plots(
-    #     simconfig2results,
-    #     rbp_factors,
-    #     rr_factors,
-    #     fpr_factors,
+    #     mcmc_results_vec.append(simulation_results)
+
+    # # plots
+    # generate_network_mcmc_forecast_plots(
+    #     mcmc_trajectories, 
+    #     [mcmc_results_vec], 
+    #     None,
     #     start_date, 
     #     current_date, 
     #     end_date, 
     #     output_dir,
-    #     save_fp_prefix=None,
-    #     save_fp_postfix=None,
     # )
-    # ################
 
-    # check when the upgrade date should be, based on Locked criteria
-    #  Should be when 5th percentile Locked is expected to reach 100M USD - 6 months
-    historical_median_price = get_fil_historical_price(history_n_days=90)
-    target_value_locked_usd = 100e6
-    fil_price_vec = [historical_median_price, 3, 5, 10]
-    filprice2lvd = {}
-    for fil_price in fil_price_vec:
-        lvd = get_locked_value_distribution(mcmc_results_vec, start_date, end_date, 
-                                            target_value_locked_usd=target_value_locked_usd, 
-                                            fil_price=fil_price)
-        filprice2lvd[fil_price] = lvd
-    pu.plot_locked_value_distribution(filprice2lvd, target_value_locked_usd, os.path.join(output_dir, 'lvd.png'))
+    # # ################
+    # # # create scenarios for rbp/rr/fpr trajectories to see how they compare w/ MCMC for determining
+    # # # when the upgrade date should be
+    # # hist_inputs = get_onboarding_historical_data(current_date, history_days=30)  # use last 30 days as the anchor, and consider scenarios +/- 20% from that level
+    # # hist_inputs = SimpleNamespace(**hist_inputs)
+    # # hist_median_rbp = np.median(hist_inputs.hist_rbp)
+    # # hist_median_rr = np.median(hist_inputs.hist_rr)
+    # # hist_median_fpr = np.median(hist_inputs.hist_fpr)
+
+    # # rbp_factors = [0.8, 1.2]
+    # # rr_factors = [0.8, 1.2]
+    # # fpr_factors = [0.8, 1.2]
+
+    # # sim_configs = list(itertools.product(rbp_factors, rr_factors, fpr_factors))
+    # # sim_configs.insert(0, (1,1,1))
+    # # simconfig2results = {}
+    # # for sim_config in sim_configs:
+    # #     rbp_factor, rr_factor, fpr_factor = sim_config
+    # #     rbp_vec = jnp.ones(forecast_length) * hist_median_rbp * rbp_factor
+    # #     rr_vec = jnp.ones(forecast_length) * min(0.99, hist_median_rr * rr_factor)
+    # #     fpr_vec = jnp.ones(forecast_length) * min(0.99, hist_median_fpr * fpr_factor)
+
+    # #     simulation_results = sim.run_sim(
+    # #         rbp_vec,
+    # #         rr_vec,
+    # #         fpr_vec,
+    # #         lock_target,
+        
+    # #         start_date,
+    # #         current_date,
+    # #         forecast_length,
+    # #         sector_duration,
+    # #         simulation_offline_data
+    # #     )
+    # #     simconfig2results[sim_config] = simulation_results
+    # # generate_scenario_forecast_plots(
+    # #     simconfig2results,
+    # #     rbp_factors,
+    # #     rr_factors,
+    # #     fpr_factors,
+    # #     start_date, 
+    # #     current_date, 
+    # #     end_date, 
+    # #     output_dir,
+    # #     save_fp_prefix=None,
+    # #     save_fp_postfix=None,
+    # # )
+    # # ################
+
+    # # check when the upgrade date should be, based on Locked criteria
+    # #  Should be when 5th percentile Locked is expected to reach 100M USD - 6 months
+    # historical_median_price = get_fil_historical_price(history_n_days=90)
+    # target_value_locked_usd = 100e6
+    # fil_price_vec = [historical_median_price, 3, 5, 10]
+    # filprice2lvd = {}
+    # for fil_price in fil_price_vec:
+    #     lvd = get_locked_value_distribution(mcmc_results_vec, start_date, end_date, 
+    #                                         target_value_locked_usd=target_value_locked_usd, 
+    #                                         fil_price=fil_price)
+    #     filprice2lvd[fil_price] = lvd
+    # pu.plot_locked_value_distribution(filprice2lvd, target_value_locked_usd, os.path.join(output_dir, 'lvd.png'))
 
     ###########################################################################################
     # check when the upgrade date should be, based on the pledge criteria
     #  Should be the earliest date where NewPledge > 2*CurrentPledge
     # TODO: include scenarios here
-    upgrade_fil_price = historical_median_price
-    upgrade_date_mcmc_q05 = get_upgrade_date_mcmc(filprice2lvd, fil_price=upgrade_fil_price, q=0.05)
-    upgrade_date_mcmc_q20 = get_upgrade_date_mcmc(filprice2lvd, fil_price=upgrade_fil_price, q=0.20)
+    # upgrade_fil_price = historical_median_price
+    # upgrade_date_mcmc_q05 = get_upgrade_date_mcmc(filprice2lvd, fil_price=upgrade_fil_price, q=0.05)
+    # upgrade_date_mcmc_q20 = get_upgrade_date_mcmc(filprice2lvd, fil_price=upgrade_fil_price, q=0.20)
     # conservative_upgrade_date_scenarios = get_upgrade_date_scenario(
     #     simconfig2results, 
     #     start_date, 
@@ -602,51 +616,58 @@ def main(
     #     target_value_locked_usd=target_value_locked_usd
     # )
     # upgrade_date = min(upgrade_date_mcmc, conservative_upgrade_date_scenarios)
-    upgrade_date = upgrade_date_mcmc_q05
-    print('Upgrade Date: [ Q05=%s // Q20=%s ]' % (upgrade_date_mcmc_q05, upgrade_date_mcmc_q20))
+    upgrade_date = pd.to_datetime('2024-03-01')
+    # print('Upgrade Date: [ Q05=%s // Q20=%s ]' % (upgrade_date_mcmc_q05, upgrade_date_mcmc_q20))
     ###########################################################################################
 
     # for the chosen date, show the forecast of the network after the upgrade w/ the new pledge
     # and the old pledge
-    gamma_smooth_vec = create_gamma_vector(upgrade_date, forecast_length, current_date, ramp_len_days=180)
-    mcmc_results_gamma_vec = []
-    for ii in tqdm(range(num_samples_mcmc*num_chains_mcmc)):
-        rbp_vec = mcmc_trajectories.rb_onboard_power_pred[ii,:]
-        rr_vec = mcmc_trajectories.renewal_rate_pred[ii,:]
-        fpr_vec = mcmc_trajectories.filplus_rate_pred[ii,:]
-        simulation_results = sim.run_sim(
-            rbp_vec,
-            rr_vec,
-            fpr_vec,
-            lock_target,
-        
-            start_date,
-            current_date,
-            forecast_length,
-            sector_duration,
-            simulation_offline_data,
-            gamma=gamma_smooth_vec,
-            gamma_weight_type=0  # means arithmetic weighting
-        )
-        mcmc_results_gamma_vec.append(simulation_results)
+    FIL_price = 5.00
+    
+    # ramp_lens_yrs = [0, 1, 2, 3, 5]
+    # factors_vec = [1, 1.01, 1.03, 1.05, 1.07]
+    ramp_lens_yrs = [0, 2.5 , 5]
+    factors_vec = [1, 1.04, 1.07]
+    investments_needed = []
+    ramplen_mcmc = []
+    for ramp_len_yr, factor in zip(ramp_lens_yrs, factors_vec):
+        gamma_smooth_vec = create_gamma_vector(upgrade_date, forecast_length, current_date, ramp_len_days=int(ramp_len_yr*365))
+        mcmc_results_gamma_vec = []
+        investment_needed_vec = []
+        for ii in tqdm(range(num_samples_mcmc*num_chains_mcmc)):
+            rbp_vec = mcmc_trajectories.rb_onboard_power_pred[ii,:]*factor
+            rr_vec = jnp.clip(mcmc_trajectories.renewal_rate_pred[ii,:]*factor, a_max=0.99)
+            fpr_vec = mcmc_trajectories.filplus_rate_pred[ii,:]
+            simulation_results = sim.run_sim(
+                rbp_vec,
+                rr_vec,
+                fpr_vec,
+                lock_target,
+            
+                start_date,
+                current_date,
+                forecast_length,
+                sector_duration,
+                simulation_offline_data,
+                gamma=gamma_smooth_vec,
+                gamma_weight_type=0  # means arithmetic weighting
+            )
+            mcmc_results_gamma_vec.append(simulation_results)
+
+            y_val_fil_new = simulation_results['day_locked_pledge'] - simulation_results['day_renewed_pledge']
+            y_val_musd = (y_val_fil_new*FIL_price)/1e6
+            ix_start = (current_date-start_date).days
+            investment_needed_vec.append(np.sum(y_val_musd[ix_start:]))
+            
+        investments_needed.append(np.quantile(investment_needed_vec, q=[0.05, 0.25, 0.5, 0.75, 0.95]))
+        ramplen_mcmc.append(mcmc_results_gamma_vec)
+
     vlines = [upgrade_date]
     vline_labels = ['Upgrade Date']
     generate_network_mcmc_forecast_plots(
         mcmc_trajectories, 
-        [mcmc_results_gamma_vec], 
-        start_date, 
-        current_date, 
-        end_date, 
-        output_dir,
-        vlines=vlines,
-        vline_labels=vline_labels,
-        save_fp_prefix='gamma',
-    )
-
-    # plot overlay
-    generate_network_mcmc_forecast_plots(
-        mcmc_trajectories, 
-        [mcmc_results_vec, mcmc_results_gamma_vec], 
+        ramplen_mcmc, 
+        ['%0.1fY/%0.2fx' % (x,y) for x,y in zip(ramp_lens_yrs, factors_vec)],
         start_date, 
         current_date, 
         end_date, 
@@ -655,37 +676,204 @@ def main(
         vline_labels=vline_labels,
         hlines=[100/3, 100/5, 100/10],
         hline_labels=['$100M-TVL@$3/FIL', '$100M-TVL@$5/FIL', '$100M-TVL@$10/FIL'],
-        save_fp_prefix='overlay',
+        save_fp_prefix='gamma_breakeven_locked',
     )
+    print('*** Break Even Locked ***')
+    for (ramp_len, factor, invest_needed) in zip(ramp_lens_yrs, factors_vec, investments_needed):
+        print('Ramp Len: %0.01fY // Factor: %0.2f // Investment Needed: %s' % (ramp_len, factor, invest_needed))
 
-    # # show the delta
-    # keys = [
-    #     'rb_total_power_eib', 'qa_total_power_eib', 'day_network_reward', 
-    #     'network_locked', 'circ_supply',
-    #     'day_pledge_per_QAP', 'day_rewards_per_sector'
-    # ]
-    # delta_vec = []
-    # for ii in range(num_samples_mcmc*num_chains_mcmc):
-    #     delta = {}
-    #     has_nan = False
-    #     for k in keys:
-    #         y = 100*np.asarray((mcmc_results_gamma_vec[ii][k] - mcmc_results_vec[ii][k])/mcmc_results_vec[ii][k])
-    #         if np.isnan(y).any():
-    #             has_nan = True
-    #             break
-    #         delta[k] = y
-    #     if not has_nan:
-    #         delta_vec.append(delta)
-    # print(len(delta_vec))
-    # generate_network_mcmc_forecast_plots_delta(
-    #     delta_vec, 
+    ################################################################################################
+    historical_median_price = get_fil_historical_price(history_n_days=90)
+    fil_price_vec = [historical_median_price, 3]
+    # target_value_locked_usd = 100e6
+
+    ramp_lens_yrs = [0, 2.5 , 5]
+    factors_vec = [1, 1, 1]
+    investments_needed = []
+    ramplen_mcmc = []
+    for ramp_len_yr, factor in zip(ramp_lens_yrs, factors_vec):
+        gamma_smooth_vec = create_gamma_vector(upgrade_date, forecast_length, current_date, ramp_len_days=int(ramp_len_yr*365))
+        mcmc_results_gamma_vec = []
+        investment_needed_vec = []
+        for ii in tqdm(range(num_samples_mcmc*num_chains_mcmc)):
+            rbp_vec = mcmc_trajectories.rb_onboard_power_pred[ii,:]*factor
+            rr_vec = jnp.clip(mcmc_trajectories.renewal_rate_pred[ii,:]*factor, a_max=0.99)
+            fpr_vec = mcmc_trajectories.filplus_rate_pred[ii,:]
+            simulation_results = sim.run_sim(
+                rbp_vec,
+                rr_vec,
+                fpr_vec,
+                lock_target,
+            
+                start_date,
+                current_date,
+                forecast_length,
+                sector_duration,
+                simulation_offline_data,
+                gamma=gamma_smooth_vec,
+                gamma_weight_type=0  # means arithmetic weighting
+            )
+            mcmc_results_gamma_vec.append(simulation_results)
+
+            y_val_fil_new = simulation_results['day_locked_pledge'] - simulation_results['day_renewed_pledge']
+            y_val_musd = (y_val_fil_new*FIL_price)/1e6
+            ix_start = (current_date-start_date).days
+            investment_needed_vec.append(np.sum(y_val_musd[ix_start:]))
+            
+        investments_needed.append(np.quantile(investment_needed_vec, q=[0.05, 0.25, 0.5, 0.75, 0.95]))
+        ramplen_mcmc.append(mcmc_results_gamma_vec)
+
+        filprice2lvd = {}
+        for fil_price in fil_price_vec:
+            lvd = get_locked_value_distribution(mcmc_results_gamma_vec, start_date, end_date, 
+                                                target_value_locked_usd=100e6, 
+                                                fil_price=fil_price)
+            filprice2lvd[fil_price] = lvd
+        pu.plot_locked_value_distribution(filprice2lvd, 100e6, os.path.join(output_dir, 'lvd_noincr_100M_ramp%0.02f.png' % ramp_len_yr))
+        
+        filprice2lvd = {}
+        for fil_price in fil_price_vec:
+            lvd = get_locked_value_distribution(mcmc_results_gamma_vec, start_date, end_date, 
+                                                target_value_locked_usd=200e6, 
+                                                fil_price=fil_price)
+            filprice2lvd[fil_price] = lvd
+        pu.plot_locked_value_distribution(filprice2lvd, 200e6, os.path.join(output_dir, 'lvd_noincr_200M_ramp%0.02f.png' % ramp_len_yr))
+
+    vlines = [upgrade_date]
+    vline_labels = ['Upgrade Date']
+    generate_network_mcmc_forecast_plots(
+        mcmc_trajectories, 
+        ramplen_mcmc, 
+        ['%0.1fY/%0.2fx' % (x,y) for x,y in zip(ramp_lens_yrs, factors_vec)],
+        start_date, 
+        current_date, 
+        end_date, 
+        output_dir,
+        vlines=vlines,
+        vline_labels=vline_labels,
+        hlines=[100/3, 100/5, 100/10],
+        hline_labels=['$100M-TVL@$3/FIL', '$100M-TVL@$5/FIL', '$100M-TVL@$10/FIL'],
+        save_fp_prefix='gamma_noincr',
+    )
+    print('*** No Increase ***')
+    for (ramp_len, factor, invest_needed) in zip(ramp_lens_yrs, factors_vec, investments_needed):
+        print('Ramp Len: %0.01fY // Factor: %0.2f // Investment Needed: %s' % (ramp_len, factor, invest_needed))
+    ################################################################################################
+        
+
+    # #### Gamma Inverse
+    # ramp_lens_yrs = [0, 2.5, 5]
+    # factors_vec = [0.91, 0.95, 1]
+    # investments_needed = []
+    # ramplen_mcmc = []
+    # for ramp_len_yr, factor in zip(ramp_lens_yrs, factors_vec):
+    #     gamma_smooth_vec = create_gamma_vector(upgrade_date, forecast_length, current_date, ramp_len_days=int(ramp_len_yr*365))
+    #     mcmc_results_gamma_vec = []
+    #     investment_needed_vec = []
+    #     for ii in tqdm(range(num_samples_mcmc*num_chains_mcmc)):
+    #         rbp_vec = mcmc_trajectories.rb_onboard_power_pred[ii,:]*factor
+    #         rr_vec = jnp.clip(mcmc_trajectories.renewal_rate_pred[ii,:]*factor, a_max=0.99)
+    #         fpr_vec = mcmc_trajectories.filplus_rate_pred[ii,:]
+    #         simulation_results = sim.run_sim(
+    #             rbp_vec,
+    #             rr_vec,
+    #             fpr_vec,
+    #             lock_target,
+            
+    #             start_date,
+    #             current_date,
+    #             forecast_length,
+    #             sector_duration,
+    #             simulation_offline_data,
+    #             gamma=gamma_smooth_vec,
+    #             gamma_weight_type=0  # means arithmetic weighting
+    #         )
+    #         mcmc_results_gamma_vec.append(simulation_results)
+
+    #         y_val_fil_new = simulation_results['day_locked_pledge'] - simulation_results['day_renewed_pledge']
+    #         y_val_musd = (y_val_fil_new*FIL_price)/1e6
+    #         ix_start = (current_date-start_date).days
+    #         investment_needed_vec.append(np.sum(y_val_musd[ix_start:]))
+            
+    #     investments_needed.append(np.quantile(investment_needed_vec, q=[0.05, 0.25, 0.5, 0.75, 0.95]))
+    #     ramplen_mcmc.append(mcmc_results_gamma_vec)
+
+    # vlines = [upgrade_date]
+    # vline_labels = ['Upgrade Date']
+    # generate_network_mcmc_forecast_plots(
+    #     mcmc_trajectories, 
+    #     ramplen_mcmc, 
+    #     ['%0.1fY/%0.2fx' % (x,y) for x,y in zip(ramp_lens_yrs, factors_vec)],
     #     start_date, 
     #     current_date, 
     #     end_date, 
     #     output_dir,
-    #     save_fp_prefix='delta',
+    #     vlines=vlines,
+    #     vline_labels=vline_labels,
+    #     hlines=[100/3, 100/5, 100/10],
+    #     hline_labels=['$100M-TVL@$3/FIL', '$100M-TVL@$5/FIL', '$100M-TVL@$10/FIL'],
+    #     save_fp_prefix='gamma_inverse',
     # )
+    # print('*** Inverse ***')
+    # for (ramp_len, factor, invest_needed) in zip(ramp_lens_yrs, factors_vec, investments_needed):
+    #     print('Ramp Len: %0.1fY // Factor: %0.2f // Investment Needed: %s' % (ramp_len, factor, invest_needed))
 
+    #### Now see, with the same investment, what factor increase would you get w/ a ramped upgrade
+    # ramp_lens_yrs = [0, 1, 2, 3, 5]
+    # factors_vec = [1, 1.07, 1.15, 1.2, 1.3]
+    # investments_needed = []
+    # ramplen_mcmc = []
+    # for ramp_len_yr, factor in zip(ramp_lens_yrs, factors_vec):
+    #     gamma_smooth_vec = create_gamma_vector(upgrade_date, forecast_length, current_date, ramp_len_days=int(ramp_len_yr*365))
+    #     mcmc_results_gamma_vec = []
+    #     investment_needed_vec = []
+    #     for ii in tqdm(range(num_samples_mcmc*num_chains_mcmc)):
+    #         rbp_vec = mcmc_trajectories.rb_onboard_power_pred[ii,:]*factor
+    #         rr_vec = jnp.clip(mcmc_trajectories.renewal_rate_pred[ii,:]*factor, a_max=0.99)
+    #         fpr_vec = mcmc_trajectories.filplus_rate_pred[ii,:]
+    #         simulation_results = sim.run_sim(
+    #             rbp_vec,
+    #             rr_vec,
+    #             fpr_vec,
+    #             lock_target,
+            
+    #             start_date,
+    #             current_date,
+    #             forecast_length,
+    #             sector_duration,
+    #             simulation_offline_data,
+    #             gamma=gamma_smooth_vec,
+    #             gamma_weight_type=0  # means arithmetic weighting
+    #         )
+    #         mcmc_results_gamma_vec.append(simulation_results)
+
+    #         y_val_fil_new = simulation_results['day_locked_pledge'] - simulation_results['day_renewed_pledge']
+    #         y_val_musd = (y_val_fil_new*FIL_price)/1e6
+    #         ix_start = (current_date-start_date).days
+    #         investment_needed_vec.append(np.sum(y_val_musd[ix_start:]))
+            
+    #     investments_needed.append(np.quantile(investment_needed_vec, q=[0.05, 0.25, 0.5, 0.75, 0.95]))
+    #     ramplen_mcmc.append(mcmc_results_gamma_vec)
+
+    # vlines = [upgrade_date]
+    # vline_labels = ['Upgrade Date']
+    # generate_network_mcmc_forecast_plots(
+    #     mcmc_trajectories, 
+    #     ramplen_mcmc, 
+    #     ['%0.2fx/%dY' % (x,y) for x,y in zip(ramp_lens_yrs, factors_vec)],
+    #     start_date, 
+    #     current_date, 
+    #     end_date, 
+    #     output_dir,
+    #     vlines=vlines,
+    #     vline_labels=vline_labels,
+    #     hlines=[100/3, 100/5, 100/10],
+    #     hline_labels=['$100M-TVL@$3/FIL', '$100M-TVL@$5/FIL', '$100M-TVL@$10/FIL'],
+    #     save_fp_prefix='gamma_breakeven_investment',
+    # )
+    # print('*** Break Even Investment ***')
+    # for (ramp_len, factor, invest_needed) in zip(ramp_lens_yrs, factors_vec, investments_needed):
+    #     print('Ramp Len: %dY // Factor: %0.2f // Investment Needed: %s' % (ramp_len, factor, invest_needed))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Baseline Bug Monitor')
