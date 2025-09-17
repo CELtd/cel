@@ -102,11 +102,17 @@ class Round:
         self.voters.extend(voters)
         self.num_voters += len(voters)
 
-    def calculate_allocations(self, scoring_method, quorum, min_amount, normalize=True):        
+    def calculate_allocations(self, scoring_method, quorum, min_amount, normalize=True, count_zero_votes_towards_quorum=False):        
         scores = []
         for project in self.projects:
             votes = project.get_votes()
-            if len(votes) < quorum:
+            if count_zero_votes_towards_quorum:
+                num_votes_above_zero = len(votes)
+            else:
+                num_votes_above_zero = len([v for v in votes if v > 0])
+            # print(project, num_votes_above_zero, votes)
+                
+            if num_votes_above_zero < quorum:
                 score = 0
             else:
                 if scoring_method == 'median':
@@ -119,8 +125,10 @@ class Round:
                     lo = np.quantile(votes, .25)
                     hi = np.quantile(votes, .75)
                     score = np.mean([v for v in votes if lo <= v <= hi])
+                elif scoring_method == 'sum':
+                    score = sum(votes)       
                 else:
-                    score = sum(votes)            
+                    raise ValueError('Invalid scoring method')     
                 if score < min_amount:
                     score = 0            
             project.score = score
@@ -227,8 +235,8 @@ class Simulation:
                 voter.cast_vote(project, amount)
 
     
-    def allocate_votes(self, scoring_method='median', quorum=1, min_amount=1, normalize=True):
-        allocations = self.round.calculate_allocations(scoring_method, quorum, min_amount, normalize)
+    def allocate_votes(self, scoring_method='median', quorum=1, min_amount=1, normalize=True, count_zero_votes_towards_quorum=False):
+        allocations = self.round.calculate_allocations(scoring_method, quorum, min_amount, normalize, count_zero_votes_towards_quorum)
         payouts = [a for a in allocations if a > 0]
         return {
             'scoring_method': scoring_method,
@@ -241,11 +249,11 @@ class Simulation:
         }
 
 
-    def simulate_voting_and_scoring(self, n=1, scoring_method='median', quorum=17, min_amount=1500, normalize=True):
+    def simulate_voting_and_scoring(self, n=1, scoring_method='median', quorum=17, min_amount=1500, normalize=True, count_zero_votes_towards_quorum=False):
         results = []
         for i in range(n):            
             self.simulate_voting()            
-            allocations = self.round.calculate_allocations(scoring_method, quorum, min_amount, normalize)
+            allocations = self.round.calculate_allocations(scoring_method, quorum, min_amount, normalize, count_zero_votes_towards_quorum)
             payouts = [a for a in allocations if a > 0]
             data = self.get_project_data()
             results.append({
@@ -262,7 +270,8 @@ class Simulation:
             'vote_quorum': quorum,
             'min_amount': min_amount,
             'normalize': normalize,
-            'num_projects_above_quorum': np.mean([r['num_projects_above_quorum'] for r in results]),
+            'num_projects_above_quorum_mean': np.mean([r['num_projects_above_quorum'] for r in results]),
+            'num_projects_above_quorum_std': np.std([r['num_projects_above_quorum'] for r in results]),
             'avg_payout': np.mean([r['avg_payout'] for r in results]),
             'median_payout': np.mean([r['median_payout'] for r in results]),
             'max_payout': np.mean([r['max_payout'] for r in results]),
